@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MapPin, Navigation, TrendingDown, Search, Fuel, Clock, Info } from 'lucide-react';
 
 // 오피넷 API 설정
-const OPINET_API_KEY = 'YOUR_OPINET_API_KEY'; // 백엔드 서버에서 처리하므로 더 이상 필요 없음
-const BACKEND_API_URL = 'http://localhost:3001'; // 백엔드 서버 주소
+const BACKEND_API_URL = 'https://gas-station-finder-backend.onrender.com'; // 백엔드 서버 주소
 
 // 주소를 좌표로 변환하는 함수
 const addressToCoordinates = (address) => {
