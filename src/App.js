@@ -313,13 +313,15 @@ const calculateSavings = (stationPrice, averagePrice, distance) => {
 
 const GasStationDashboard = () => {
   const [address, setAddress] = useState('서울시 종로구 평창문화로 12');
-  const [radius, setRadius] = useState(2.0); // 3.0에서 5.0으로 증가
-  const [stations, setStations] = useState([]);
+  const [radius, setRadius] = useState(10.0); // 기본값 10km
+  const [allStations, setAllStations] = useState([]); // 10km 내 모든 주유소
+  const [stations, setStations] = useState([]); // radius로 필터링된 주유소
   const [sortMode, setSortMode] = useState('price');
   const [hoveredCard, setHoveredCard] = useState(null);
   const [coordinates, setCoordinates] = useState({ lat: 37.5665, lng: 126.9780 });
   const [loading, setLoading] = useState(false);
   const [kakaoLoaded, setKakaoLoaded] = useState(false);
+  const hasLoadedRef = React.useRef(false); // 중복 로드 방지
 
   // 카카오 지도 API 로드 확인
   useEffect(() => {
@@ -335,20 +337,32 @@ const GasStationDashboard = () => {
     checkKakao();
   }, []);
 
-  // 초기 로드
+  // 초기 로드 (10km 데이터 가져오기)
   useEffect(() => {
-    loadStations();
-  }, [radius]);
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true;
+      loadStations();
+    }
+  }, []); // ✅ 컴포넌트 마운트 시 한 번만 호출 (Strict Mode에서도)
 
-  // 주유소 데이터 로드
+  // radius 변경 시 필터링만 수행 (API 호출 없음)
+  useEffect(() => {
+    const filtered = allStations.filter(station => station.distance <= radius);
+    setStations(filtered);
+  }, [radius, allStations]);
+
+  // 주유소 데이터 로드 (항상 10km 기준)
   const loadStations = async () => {
     setLoading(true);
     try {
-      const data = await fetchNearbyStations(coordinates.lat, coordinates.lng, radius);
-      setStations(data);
+      const data = await fetchNearbyStations(coordinates.lat, coordinates.lng, 10); // 항상 10km
+      setAllStations(data); // 10km 데이터를 allStations에 캐싱
+      const filtered = data.filter(station => station.distance <= radius);
+      setStations(filtered);
     } catch (error) {
       console.error('주유소 데이터 로드 실패:', error);
       // 실패 시 빈 배열
+      setAllStations([]);
       setStations([]);
     } finally {
       setLoading(false);
@@ -380,10 +394,12 @@ const GasStationDashboard = () => {
           console.log('✅ 선택한 주소:', fullAddress);
           console.log('✅ Postcode API 좌표:', coords);
           
-          // 새 좌표로 주유소 데이터 로드
+          // 새 좌표로 주유소 데이터 로드 (10km 기준)
           setLoading(true);
-          const newStations = await fetchNearbyStations(coords.lat, coords.lng, radius);
-          setStations(newStations);
+          const newStations = await fetchNearbyStations(coords.lat, coords.lng, 10);
+          setAllStations(newStations);
+          const filtered = newStations.filter(station => station.distance <= radius);
+          setStations(filtered);
           setLoading(false);
           return;
         }
@@ -393,10 +409,12 @@ const GasStationDashboard = () => {
           console.warn('⚠️ 카카오 Geocoding API 사용 불가 - 기본 좌표 사용');
           alert(`주소가 선택되었습니다: ${roadAddress || fullAddress}\n\n좌표 변환 기능이 비활성화되어 있습니다.\n기본 위치(서울 강남) 기준으로 주유소를 표시합니다.`);
           
-          // 기본 좌표로 주유소 데이터 로드
+          // 기본 좌표로 주유소 데이터 로드 (10km 기준)
           setLoading(true);
-          const newStations = await fetchNearbyStations(coordinates.lat, coordinates.lng, radius);
-          setStations(newStations);
+          const newStations = await fetchNearbyStations(coordinates.lat, coordinates.lng, 10);
+          setAllStations(newStations);
+          const filtered = newStations.filter(station => station.distance <= radius);
+          setStations(filtered);
           setLoading(false);
           return;
         }
@@ -409,10 +427,12 @@ const GasStationDashboard = () => {
           console.log('✅ 선택한 주소:', fullAddress);
           console.log('✅ 변환된 좌표:', coords);
           
-          // 새 좌표로 주유소 데이터 로드
+          // 새 좌표로 주유소 데이터 로드 (10km 기준)
           setLoading(true);
-          const newStations = await fetchNearbyStations(coords.lat, coords.lng, radius);
-          setStations(newStations);
+          const newStations = await fetchNearbyStations(coords.lat, coords.lng, 10);
+          setAllStations(newStations);
+          const filtered = newStations.filter(station => station.distance <= radius);
+          setStations(filtered);
           setLoading(false);
         } catch (error) {
           console.error('❌ 주소 변환 실패:', error);
