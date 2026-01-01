@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { MapPin, Navigation, TrendingDown, Search, Fuel, Clock, Info } from 'lucide-react';
 
 // 오피넷 API 설정
-const BACKEND_API_URL = 'https://gas-station-finder-backend.onrender.com'; // 백엔드 서버 주소
+const BACKEND_API_URL = process.env.NODE_ENV === 'development'
+  ? 'http://localhost:3001' // 로컬 개발용
+  : 'https://gas-station-finder-backend.onrender.com'; // 프로덕션용
 
 // 주소를 좌표로 변환하는 함수
 const addressToCoordinates = (address) => {
@@ -73,7 +75,10 @@ const fetchNearbyStations = async (lat, lng, radius) => {
           price: parseInt(station.PRICE) || 0,
           distance: parseFloat(station.DISTANCE) / 1000 || 0, // 미터를 km로 변환
           address: station.NEW_ADR || station.VAN_ADR || '주소 정보 없음',
-          lastUpdate: station.PRICE_DT || new Date().toISOString().slice(0, 10)
+          lastUpdate: station.PRICE_DT || new Date().toISOString().slice(0, 10),
+          // KATEC에서 역변환된 WGS84 좌표
+          lat: station.WGS84_LAT || null,
+          lng: station.WGS84_LNG || null
         };
       }).filter(station => station.price > 0); // 가격 정보가 있는 주유소만
       
@@ -288,6 +293,13 @@ const styles = {
     borderRadius: '9999px',
     transition: 'width 0.3s',
   },
+  mapContainer: {
+    width: '100%',
+    height: '400px',
+    borderRadius: '0.75rem',
+    overflow: 'hidden',
+    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+  },
 };
 
 const calculateTravelCost = (distance, fuelPrice) => {
@@ -312,16 +324,21 @@ const calculateSavings = (stationPrice, averagePrice, distance) => {
 };
 
 const GasStationDashboard = () => {
-  const [address, setAddress] = useState('서울시 종로구 평창문화로 12');
+  const [address, setAddress] = useState('서울시청');
   const [radius, setRadius] = useState(10.0); // 기본값 10km
   const [allStations, setAllStations] = useState([]); // 10km 내 모든 주유소
   const [stations, setStations] = useState([]); // radius로 필터링된 주유소
   const [sortMode, setSortMode] = useState('price');
   const [hoveredCard, setHoveredCard] = useState(null);
-  const [coordinates, setCoordinates] = useState({ lat: 37.5665, lng: 126.9780 });
+  const [coordinates, setCoordinates] = useState({ lat: 37.5664, lng: 126.9778 });
   const [loading, setLoading] = useState(false);
   const [kakaoLoaded, setKakaoLoaded] = useState(false);
   const hasLoadedRef = React.useRef(false); // 중복 로드 방지
+  const mapRef = React.useRef(null); // 지도 DOM 참조
+  const mapInstanceRef = React.useRef(null); // 지도 인스턴스
+  const centerMarkerRef = React.useRef(null); // 중심점 마커
+  const circleRef = React.useRef(null); // 검색 반경 원
+  const stationMarkersRef = React.useRef([]); // 주유소 마커들
 
   // 카카오 지도 API 로드 확인
   useEffect(() => {
@@ -350,6 +367,156 @@ const GasStationDashboard = () => {
     const filtered = allStations.filter(station => station.distance <= radius);
     setStations(filtered);
   }, [radius, allStations]);
+
+  // 카카오맵 초기화 및 업데이트
+  useEffect(() => {
+    if (!kakaoLoaded || !mapRef.current) return;
+
+    const kakao = window.kakao;
+
+    // 지도 초기화 (최초 1회)
+    if (!mapInstanceRef.current) {
+      const container = mapRef.current;
+      const options = {
+        center: new kakao.maps.LatLng(coordinates.lat, coordinates.lng),
+        level: 5, // 확대 레벨
+        draggable: true, // 마우스 드래그 이동 가능
+        scrollwheel: true, // 마우스 휠로 확대/축소 가능
+        disableDoubleClick: false, // 더블클릭 확대 가능
+        disableDoubleClickZoom: false
+      };
+
+      mapInstanceRef.current = new kakao.maps.Map(container, options);
+
+      // 지도 컨트롤 추가
+      const mapTypeControl = new kakao.maps.MapTypeControl();
+      mapInstanceRef.current.addControl(mapTypeControl, kakao.maps.ControlPosition.TOPRIGHT);
+
+      const zoomControl = new kakao.maps.ZoomControl();
+      mapInstanceRef.current.addControl(zoomControl, kakao.maps.ControlPosition.RIGHT);
+
+      console.log('✅ 카카오맵 초기화 완료 (드래그/확대축소 활성화)');
+    }
+
+    // 좌표 변경 시 지도 중심 이동
+    const newCenter = new kakao.maps.LatLng(coordinates.lat, coordinates.lng);
+    mapInstanceRef.current.setCenter(newCenter);
+
+    // 기존 중심점 마커 제거
+    if (centerMarkerRef.current) {
+      centerMarkerRef.current.setMap(null);
+    }
+
+    // 새 중심점 마커 추가 (빨간색)
+    centerMarkerRef.current = new kakao.maps.Marker({
+      position: newCenter,
+      map: mapInstanceRef.current,
+      image: new kakao.maps.MarkerImage(
+        'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png',
+        new kakao.maps.Size(30, 42)
+      )
+    });
+
+    // 기존 원 제거
+    if (circleRef.current) {
+      circleRef.current.setMap(null);
+    }
+
+    // 검색 반경 원 추가
+    circleRef.current = new kakao.maps.Circle({
+      center: newCenter,
+      radius: radius * 1000, // km를 m로 변환
+      strokeWeight: 2,
+      strokeColor: '#2563eb',
+      strokeOpacity: 0.8,
+      strokeStyle: 'solid',
+      fillColor: '#2563eb',
+      fillOpacity: 0.1
+    });
+
+    circleRef.current.setMap(mapInstanceRef.current);
+
+  }, [coordinates, radius, kakaoLoaded]);
+
+  // 주유소 마커 업데이트 (검색 반경 내의 주유소만)
+  useEffect(() => {
+    if (!kakaoLoaded || !mapInstanceRef.current) return;
+
+    const kakao = window.kakao;
+
+    // 기존 주유소 마커들 제거
+    stationMarkersRef.current.forEach(marker => marker.setMap(null));
+    stationMarkersRef.current = [];
+
+    // 평균 가격 계산
+    const averagePrice = stations.length > 0
+      ? Math.round(stations.reduce((sum, s) => sum + s.price, 0) / stations.length)
+      : 0;
+
+    // sortedStations 계산 (정렬된 배열)
+    const sortedStations = [...stations].sort((a, b) => {
+      if (sortMode === 'price') return a.price - b.price;
+      if (sortMode === 'distance') return a.distance - b.distance;
+
+      const savingsA = calculateSavings(a.price, averagePrice, a.distance);
+      const savingsB = calculateSavings(b.price, averagePrice, b.distance);
+      return savingsB.netSavings - savingsA.netSavings;
+    });
+
+    // 트로피 이유 텍스트
+    const getBestReason = () => {
+      if (sortMode === 'price') return '최저가';
+      if (sortMode === 'distance') return '최단거리';
+      return '가성비 최우수';
+    };
+
+    // 정렬된 주유소만 마커 표시
+    sortedStations.forEach((station, index) => {
+      if (!station.lat || !station.lng) {
+        return; // 좌표 없으면 스킵
+      }
+
+      const position = new kakao.maps.LatLng(station.lat, station.lng);
+
+      // 주유소 마커 (파란색)
+      const marker = new kakao.maps.Marker({
+        position: position,
+        map: mapInstanceRef.current,
+        title: station.name
+      });
+
+      // 인포윈도우 추가
+      const infowindow = new kakao.maps.InfoWindow({
+        removable: true, // X 버튼으로 닫기 가능
+        content: `
+          <div style="padding:8px 12px; min-width:200px;">
+            <div style="font-weight:bold; font-size:14px; margin-bottom:4px;">
+              ${index === 0 ? `🏆 ${getBestReason()} ` : ''}${station.name}
+            </div>
+            <div style="font-size:12px; color:#666;">
+              ${station.brand} | ${station.price.toLocaleString()}원/L
+            </div>
+            <div style="font-size:11px; color:#999; margin-top:4px;">
+              거리: ${station.distance.toFixed(2)}km
+            </div>
+          </div>
+        `
+      });
+
+      // 마커 클릭 시 인포윈도우 표시
+      kakao.maps.event.addListener(marker, 'click', function() {
+        infowindow.open(mapInstanceRef.current, marker);
+      });
+
+      stationMarkersRef.current.push(marker);
+    });
+
+    const markerCount = stationMarkersRef.current.length;
+    if (markerCount > 0) {
+      console.log(`✅ ${markerCount}개 주유소 마커 표시 완료 (반경 ${radius.toFixed(1)}km 내)`);
+    }
+
+  }, [stations, kakaoLoaded, radius, sortMode]);
 
   // 주유소 데이터 로드 (항상 10km 기준)
   const loadStations = async () => {
@@ -389,16 +556,17 @@ const GasStationDashboard = () => {
             lat: parseFloat(data.y),
             lng: parseFloat(data.x)
           };
-          
+
           setCoordinates(coords);
+          setRadius(10); // 반경 10km로 재설정
           console.log('✅ 선택한 주소:', fullAddress);
           console.log('✅ Postcode API 좌표:', coords);
-          
+
           // 새 좌표로 주유소 데이터 로드 (10km 기준)
           setLoading(true);
           const newStations = await fetchNearbyStations(coords.lat, coords.lng, 10);
           setAllStations(newStations);
-          const filtered = newStations.filter(station => station.distance <= radius);
+          const filtered = newStations.filter(station => station.distance <= 10);
           setStations(filtered);
           setLoading(false);
           return;
@@ -408,12 +576,13 @@ const GasStationDashboard = () => {
         if (!kakaoLoaded || !window.kakao?.maps?.services?.Geocoder) {
           console.warn('⚠️ 카카오 Geocoding API 사용 불가 - 기본 좌표 사용');
           alert(`주소가 선택되었습니다: ${roadAddress || fullAddress}\n\n좌표 변환 기능이 비활성화되어 있습니다.\n기본 위치(서울 강남) 기준으로 주유소를 표시합니다.`);
-          
+
+          setRadius(10); // 반경 10km로 재설정
           // 기본 좌표로 주유소 데이터 로드 (10km 기준)
           setLoading(true);
           const newStations = await fetchNearbyStations(coordinates.lat, coordinates.lng, 10);
           setAllStations(newStations);
-          const filtered = newStations.filter(station => station.distance <= radius);
+          const filtered = newStations.filter(station => station.distance <= 10);
           setStations(filtered);
           setLoading(false);
           return;
@@ -423,15 +592,16 @@ const GasStationDashboard = () => {
           // 주소를 좌표로 변환
           const coords = await addressToCoordinates(roadAddress || fullAddress);
           setCoordinates(coords);
-          
+          setRadius(10); // 반경 10km로 재설정
+
           console.log('✅ 선택한 주소:', fullAddress);
           console.log('✅ 변환된 좌표:', coords);
-          
+
           // 새 좌표로 주유소 데이터 로드 (10km 기준)
           setLoading(true);
           const newStations = await fetchNearbyStations(coords.lat, coords.lng, 10);
           setAllStations(newStations);
-          const filtered = newStations.filter(station => station.distance <= radius);
+          const filtered = newStations.filter(station => station.distance <= 10);
           setStations(filtered);
           setLoading(false);
         } catch (error) {
@@ -510,6 +680,20 @@ const GasStationDashboard = () => {
               onChange={(e) => setRadius(parseFloat(e.target.value))}
               style={styles.slider}
             />
+          </div>
+        </div>
+
+        {/* 카카오맵 */}
+        <div style={styles.card}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+            <MapPin size={20} color="#2563eb" />
+            <h2 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: '#111827', margin: 0 }}>
+              주변 지도
+            </h2>
+          </div>
+          <div ref={mapRef} style={styles.mapContainer}></div>
+          <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.5rem', textAlign: 'center' }}>
+            🔴 현재 검색 위치 | 🔵 파란 마커: 주유소 ({stations.filter(s => s.lat && s.lng).length}개) | 검색 반경 {radius.toFixed(1)}km
           </div>
         </div>
 
@@ -702,7 +886,7 @@ const GasStationDashboard = () => {
                 <div style={{ marginTop: '0.75rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>
                     <span>현재 위치</span>
-                    <span>{station.distance}km</span>
+                    <span>{station.distance.toFixed(3)}km</span>
                   </div>
                   <div style={styles.progressBar}>
                     <div
@@ -714,15 +898,6 @@ const GasStationDashboard = () => {
                     />
                   </div>
                 </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
-                <button style={{ ...styles.button, flex: 1, fontSize: '0.875rem' }}>
-                  길찾기
-                </button>
-                <button style={{ ...styles.button, flex: 1, fontSize: '0.875rem', background: '#f3f4f6', color: '#374151' }}>
-                  상세보기
-                </button>
               </div>
             </div>
           );

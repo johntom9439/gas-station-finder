@@ -12,21 +12,34 @@ app.use(cors({ origin: '*', methods: ['GET', 'POST'], credentials: true }));
 // 단일 좌표계 정의 - lon_0=127로 고정
 proj4.defs([
   ['EPSG:4326', '+proj=longlat +datum=WGS84 +no_defs'],
-  ['TM_OPINET', '+proj=tmerc +lat_0=37.9674 +lon_0=125.75 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs'],
+  ['TM_OPINET', '+proj=tmerc +lat_0=38 +lon_0=128 +k=0.9999 +x_0=400000 +y_0=600000 +ellps=bessel +units=m +towgs84=-115.80,474.99,674.11,1.16,-2.31,-1.63,6.43 +no_defs'],
 ]);
 
-// 좌표 변환 함수 (단일 좌표계만 사용)
+// 'TM_OPINET', '+proj=tmerc +lat_0=37.9674 +lon_0=125.75 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs'
+
+// 좌표 변환 함수 (WGS84 → KATEC)
 function convertCoordinates(lat, lng) {
   const results = {};
-  
+
   try {
     const [x, y] = proj4('EPSG:4326', 'TM_OPINET', [lng, lat]);
     results['TM_OPINET'] = { x: Math.round(x), y: Math.round(y) };
   } catch (error) {
     results['TM_OPINET'] = { error: error.message };
   }
-  
+
   return results;
+}
+
+// 역변환 함수 (KATEC → WGS84)
+function reverseConvertCoordinates(x, y) {
+  try {
+    const [lng, lat] = proj4('TM_OPINET', 'EPSG:4326', [x, y]);
+    return { lat, lng };
+  } catch (error) {
+    console.error('❌ KATEC → WGS84 역변환 실패:', error);
+    return null;
+  }
 }
 
 // 오피넷 API 호출
@@ -62,14 +75,34 @@ async function tryOpinet(lat, lng, radius, apiKey) {
         const count = data.RESULT.OIL.length;
         const firstStation = data.RESULT.OIL[0];
         const address = firstStation.NEW_ADR || firstStation.VAN_ADR || '';
-        
+
         console.log(`✅ ${count}개 주유소 발견`);
         console.log(`\n📍 첫 번째 주유소:`);
         console.log(`   이름: ${firstStation.OS_NM}`);
         console.log(`   주소: ${address}`);
         console.log(`   거리: ${firstStation.DISTANCE}m`);
         console.log(`   가격: ${firstStation.PRICE}원`);
-        
+
+        // 각 주유소의 KATEC 좌표를 WGS84로 역변환
+        data.RESULT.OIL = data.RESULT.OIL.map(station => {
+          // 오피넷 API 좌표 필드
+          const katecX = parseFloat(station.GIS_X_COOR || 0);
+          const katecY = parseFloat(station.GIS_Y_COOR || 0);
+
+          if (katecX && katecY) {
+            const wgs84 = reverseConvertCoordinates(katecX, katecY);
+            if (wgs84) {
+              station.WGS84_LAT = wgs84.lat;
+              station.WGS84_LNG = wgs84.lng;
+              console.log(`   🔄 ${station.OS_NM}: KATEC(${katecX}, ${katecY}) → WGS84(${wgs84.lat.toFixed(6)}, ${wgs84.lng.toFixed(6)})`);
+            }
+          } else {
+            console.log(`   ⚠️ ${station.OS_NM}: GIS 좌표 정보 없음`);
+          }
+
+          return station;
+        });
+
         // 지역 확인 및 피드백
         if (address.includes('서울') || address.includes('경기')) {
           console.log(`   ✅ 올바른 지역 (서울/경기)`);
@@ -122,14 +155,13 @@ app.get('/api/stations', async (req, res) => {
       }
     }
 
-    // Mock 데이터
-    console.log('🎭 Mock 데이터 생성');
+    // 데이터 없음 - 빈 배열 반환
+    console.log('⚠️ 주유소 데이터 없음 - 빈 배열 반환');
     console.log('========================================\n');
-    const mockStations = generateMockStations(parseFloat(lat), parseFloat(lng), parseFloat(radius));
-    
+
     res.json({
       RESULT: {
-        OIL: mockStations
+        OIL: []
       }
     });
     
