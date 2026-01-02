@@ -325,8 +325,8 @@ const calculateSavings = (stationPrice, averagePrice, distance) => {
 
 const GasStationDashboard = () => {
   const [address, setAddress] = useState('서울시청');
-  const [radius, setRadius] = useState(10.0); // 기본값 10km
-  const [allStations, setAllStations] = useState([]); // 10km 내 모든 주유소
+  const [radius, setRadius] = useState(5.0); // 기본값 5km (오피넷 API 최대 반경)
+  const [allStations, setAllStations] = useState([]); // 5km 내 모든 주유소
   const [stations, setStations] = useState([]); // radius로 필터링된 주유소
   const [sortMode, setSortMode] = useState('price');
   const [hoveredCard, setHoveredCard] = useState(null);
@@ -354,11 +354,44 @@ const GasStationDashboard = () => {
     checkKakao();
   }, []);
 
-  // 초기 로드 (10km 데이터 가져오기)
+  // 초기 로드 (사용자 현재 위치 기반으로 5km 데이터 가져오기)
   useEffect(() => {
     if (!hasLoadedRef.current) {
       hasLoadedRef.current = true;
-      loadStations();
+
+      // 브라우저 Geolocation API로 현재 위치 가져오기
+      if (navigator.geolocation) {
+        console.log('📍 사용자 현재 위치 가져오는 중...');
+
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            // 성공: 사용자 현재 위치로 설정
+            const userLocation = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            };
+            console.log('✅ 현재 위치:', userLocation);
+            setCoordinates(userLocation);
+            setAddress('현재 위치');
+            // 현재 위치 좌표로 주유소 데이터 로드
+            loadStations(userLocation.lat, userLocation.lng);
+          },
+          (error) => {
+            // 실패 또는 권한 거부: 서울시청 fallback
+            console.warn('⚠️ 위치 권한 거부 또는 실패, 서울시청으로 기본 설정:', error.message);
+            loadStations(); // 기본 좌표(서울시청)로 로드
+          },
+          {
+            enableHighAccuracy: true, // 고정밀 위치
+            timeout: 10000, // 10초 타임아웃
+            maximumAge: 0 // 캐시 사용 안 함
+          }
+        );
+      } else {
+        // Geolocation API 미지원 브라우저
+        console.warn('⚠️ Geolocation API 미지원, 서울시청으로 기본 설정');
+        loadStations();
+      }
     }
   }, []); // ✅ 컴포넌트 마운트 시 한 번만 호출 (Strict Mode에서도)
 
@@ -518,12 +551,13 @@ const GasStationDashboard = () => {
 
   }, [stations, kakaoLoaded, radius, sortMode]);
 
-  // 주유소 데이터 로드 (항상 10km 기준)
-  const loadStations = async () => {
+  // 주유소 데이터 로드 (항상 5km 기준 - 오피넷 API 최대 반경)
+  const loadStations = async (lat = coordinates.lat, lng = coordinates.lng) => {
     setLoading(true);
     try {
-      const data = await fetchNearbyStations(coordinates.lat, coordinates.lng, 10); // 항상 10km
-      setAllStations(data); // 10km 데이터를 allStations에 캐싱
+      console.log(`📡 주유소 검색 중: lat=${lat}, lng=${lng}, radius=5km`);
+      const data = await fetchNearbyStations(lat, lng, 5); // 오피넷 API 최대 5km
+      setAllStations(data); // 5km 데이터를 allStations에 캐싱
       const filtered = data.filter(station => station.distance <= radius);
       setStations(filtered);
     } catch (error) {
@@ -558,15 +592,15 @@ const GasStationDashboard = () => {
           };
 
           setCoordinates(coords);
-          setRadius(10); // 반경 10km로 재설정
+          setRadius(5); // 반경 5km로 재설정
           console.log('✅ 선택한 주소:', fullAddress);
           console.log('✅ Postcode API 좌표:', coords);
 
-          // 새 좌표로 주유소 데이터 로드 (10km 기준)
+          // 새 좌표로 주유소 데이터 로드 (5km 기준)
           setLoading(true);
-          const newStations = await fetchNearbyStations(coords.lat, coords.lng, 10);
+          const newStations = await fetchNearbyStations(coords.lat, coords.lng, 5);
           setAllStations(newStations);
-          const filtered = newStations.filter(station => station.distance <= 10);
+          const filtered = newStations.filter(station => station.distance <= 5);
           setStations(filtered);
           setLoading(false);
           return;
@@ -577,12 +611,12 @@ const GasStationDashboard = () => {
           console.warn('⚠️ 카카오 Geocoding API 사용 불가 - 기본 좌표 사용');
           alert(`주소가 선택되었습니다: ${roadAddress || fullAddress}\n\n좌표 변환 기능이 비활성화되어 있습니다.\n기본 위치(서울 강남) 기준으로 주유소를 표시합니다.`);
 
-          setRadius(10); // 반경 10km로 재설정
-          // 기본 좌표로 주유소 데이터 로드 (10km 기준)
+          setRadius(5); // 반경 5km로 재설정
+          // 기본 좌표로 주유소 데이터 로드 (5km 기준)
           setLoading(true);
-          const newStations = await fetchNearbyStations(coordinates.lat, coordinates.lng, 10);
+          const newStations = await fetchNearbyStations(coordinates.lat, coordinates.lng, 5);
           setAllStations(newStations);
-          const filtered = newStations.filter(station => station.distance <= 10);
+          const filtered = newStations.filter(station => station.distance <= 5);
           setStations(filtered);
           setLoading(false);
           return;
@@ -592,16 +626,16 @@ const GasStationDashboard = () => {
           // 주소를 좌표로 변환
           const coords = await addressToCoordinates(roadAddress || fullAddress);
           setCoordinates(coords);
-          setRadius(10); // 반경 10km로 재설정
+          setRadius(5); // 반경 5km로 재설정
 
           console.log('✅ 선택한 주소:', fullAddress);
           console.log('✅ 변환된 좌표:', coords);
 
-          // 새 좌표로 주유소 데이터 로드 (10km 기준)
+          // 새 좌표로 주유소 데이터 로드 (5km 기준)
           setLoading(true);
-          const newStations = await fetchNearbyStations(coords.lat, coords.lng, 10);
+          const newStations = await fetchNearbyStations(coords.lat, coords.lng, 5);
           setAllStations(newStations);
-          const filtered = newStations.filter(station => station.distance <= 10);
+          const filtered = newStations.filter(station => station.distance <= 5);
           setStations(filtered);
           setLoading(false);
         } catch (error) {
@@ -674,7 +708,7 @@ const GasStationDashboard = () => {
             <input
               type="range"
               min="0.5"
-              max="10"
+              max="5"
               step="0.1"
               value={radius}
               onChange={(e) => setRadius(parseFloat(e.target.value))}
@@ -799,7 +833,7 @@ const GasStationDashboard = () => {
               {radius.toFixed(1)}km 반경 내에서 주유소를 찾을 수 없습니다.
             </p>
             <button
-              onClick={() => setRadius(Math.min(10, radius + 1))}
+              onClick={() => setRadius(Math.min(5, radius + 1))}
               style={styles.button}
             >
               검색 반경 넓히기 (+1km)
