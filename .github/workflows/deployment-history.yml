@@ -36,7 +36,7 @@ jobs:
           import os
           import json
           import subprocess
-          from datetime import datetime
+          from datetime import datetime, timezone, timedelta
           from google.oauth2 import service_account
           from googleapiclient.discovery import build
 
@@ -80,8 +80,9 @@ jobs:
               for f in changed_files
           )
 
-          # 현재 시간
-          now = datetime.utcnow()
+          # 현재 시간 (KST = UTC+9)
+          kst = timezone(timedelta(hours=9))
+          now = datetime.now(kst)
           date_str = now.strftime('%Y-%m-%d')
           time_str = now.strftime('%H:%M:%S')
 
