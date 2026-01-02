@@ -42,6 +42,38 @@ function reverseConvertCoordinates(x, y) {
   }
 }
 
+// 카카오 역지오코딩 (좌표 → 주소)
+async function reverseGeocode(lat, lng) {
+  try {
+    const url = `https://dapi.kakao.com/v2/local/geo/coord2address.json?x=${lng}&y=${lat}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `KakaoAK ${process.env.KAKAO_REST_API_KEY}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Kakao API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.documents && data.documents.length > 0) {
+      // 도로명 주소 우선, 없으면 지번 주소
+      const roadAddress = data.documents[0].road_address;
+      const jibunAddress = data.documents[0].address;
+
+      return roadAddress?.address_name || jibunAddress?.address_name || null;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('❌ 역지오코딩 실패:', error.message);
+    return null;
+  }
+}
+
 // 오피넷 API 호출
 async function tryOpinet(lat, lng, radius, apiKey) {
   const coords = convertCoordinates(lat, lng);
@@ -102,6 +134,26 @@ async function tryOpinet(lat, lng, radius, apiKey) {
 
           return station;
         });
+
+        // 주소 없는 주유소에 역지오코딩 적용
+        console.log(`\n📍 역지오코딩 시작...`);
+        const reverseGeocodingPromises = data.RESULT.OIL.map(async (station) => {
+          // 주소가 없고 WGS84 좌표가 있는 경우
+          if (!station.NEW_ADR && !station.VAN_ADR && station.WGS84_LAT && station.WGS84_LNG) {
+            const address = await reverseGeocode(station.WGS84_LAT, station.WGS84_LNG);
+            if (address) {
+              station.REVERSE_GEOCODED_ADDRESS = address;
+              console.log(`   ✅ ${station.OS_NM}: ${address}`);
+            } else {
+              console.log(`   ⚠️ ${station.OS_NM}: 역지오코딩 실패`);
+            }
+          }
+          return station;
+        });
+
+        // 모든 역지오코딩 완료 대기
+        data.RESULT.OIL = await Promise.all(reverseGeocodingPromises);
+        console.log(`✅ 역지오코딩 완료\n`);
 
         // 지역 확인 및 피드백
         if (address.includes('서울') || address.includes('경기')) {

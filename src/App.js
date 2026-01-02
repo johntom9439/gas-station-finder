@@ -74,7 +74,7 @@ const fetchNearbyStations = async (lat, lng, radius) => {
           brand: brandMap[station.POLL_DIV_CD] || station.POLL_DIV_CD || '기타',
           price: parseInt(station.PRICE) || 0,
           distance: parseFloat(station.DISTANCE) / 1000 || 0, // 미터를 km로 변환
-          address: station.NEW_ADR || station.VAN_ADR || '주소 정보 없음',
+          address: station.REVERSE_GEOCODED_ADDRESS || station.NEW_ADR || station.VAN_ADR || '주소 정보 없음',
           lastUpdate: station.PRICE_DT || new Date().toISOString().slice(0, 10),
           // KATEC에서 역변환된 WGS84 좌표
           lat: station.WGS84_LAT || null,
@@ -339,6 +339,7 @@ const GasStationDashboard = () => {
   const centerMarkerRef = React.useRef(null); // 중심점 마커
   const circleRef = React.useRef(null); // 검색 반경 원
   const stationMarkersRef = React.useRef([]); // 주유소 마커들
+  const currentInfoWindowRef = React.useRef(null); // 현재 열린 인포윈도우
 
   // 카카오 지도 API 로드 확인
   useEffect(() => {
@@ -481,6 +482,19 @@ const GasStationDashboard = () => {
     stationMarkersRef.current.forEach(marker => marker.setMap(null));
     stationMarkersRef.current = [];
 
+    // 기존 인포윈도우 닫기
+    if (currentInfoWindowRef.current) {
+      currentInfoWindowRef.current.close();
+      currentInfoWindowRef.current = null;
+    }
+
+    // 전역 트로피 클릭 함수들 정리
+    Object.keys(window).forEach(key => {
+      if (key.startsWith('openTrophyInfo_')) {
+        delete window[key];
+      }
+    });
+
     // 평균 가격 계산
     const averagePrice = stations.length > 0
       ? Math.round(stations.reduce((sum, s) => sum + s.price, 0) / stations.length)
@@ -503,6 +517,14 @@ const GasStationDashboard = () => {
       return '가성비 최우수';
     };
 
+    // 최저가 및 최저거리 주유소 찾기
+    const lowestPriceStation = sortedStations.reduce((min, station) =>
+      station.price < min.price ? station : min, sortedStations[0]
+    );
+    const closestStation = sortedStations.reduce((min, station) =>
+      station.distance < min.distance ? station : min, sortedStations[0]
+    );
+
     // 정렬된 주유소만 마커 표시
     sortedStations.forEach((station, index) => {
       if (!station.lat || !station.lng) {
@@ -511,35 +533,107 @@ const GasStationDashboard = () => {
 
       const position = new kakao.maps.LatLng(station.lat, station.lng);
 
-      // 주유소 마커 (파란색)
-      const marker = new kakao.maps.Marker({
-        position: position,
-        map: mapInstanceRef.current,
-        title: station.name
-      });
+      // sortMode에 따라 트로피 표시 조건 변경
+      let isBestStation = false;
+      if (sortMode === 'price') {
+        // 최저가 탭: 최저가만 트로피
+        isBestStation = station.id === lowestPriceStation.id;
+      } else if (sortMode === 'distance') {
+        // 최단거리 탭: 최단거리만 트로피
+        isBestStation = station.id === closestStation.id;
+      } else {
+        // 가성비 탭: 1등만 트로피
+        isBestStation = index === 0;
+      }
 
-      // 인포윈도우 추가
-      const infowindow = new kakao.maps.InfoWindow({
-        removable: true, // X 버튼으로 닫기 가능
-        content: `
-          <div style="padding:8px 12px; min-width:200px;">
-            <div style="font-weight:bold; font-size:14px; margin-bottom:4px;">
-              ${index === 0 ? `🏆 ${getBestReason()} ` : ''}${station.name}
-            </div>
-            <div style="font-size:12px; color:#666;">
-              ${station.brand} | ${station.price.toLocaleString()}원/L
-            </div>
-            <div style="font-size:11px; color:#999; margin-top:4px;">
-              거리: ${station.distance.toFixed(2)}km
-            </div>
-          </div>
-        `
-      });
+      let marker;
 
-      // 마커 클릭 시 인포윈도우 표시
-      kakao.maps.event.addListener(marker, 'click', function() {
-        infowindow.open(mapInstanceRef.current, marker);
-      });
+      if (isBestStation) {
+        // 트로피 마커 (CustomOverlay 사용)
+        // 인포윈도우 생성
+        const infowindow = new kakao.maps.InfoWindow({
+          removable: true,
+          content: `
+            <div style="padding:8px 12px; min-width:200px;">
+              <div style="font-weight:bold; font-size:14px; margin-bottom:4px;">
+                🏆 ${getBestReason()} ${station.name}
+              </div>
+              <div style="font-size:12px; color:#666;">
+                ${station.brand} | ${station.price.toLocaleString()}원/L
+              </div>
+              <div style="font-size:11px; color:#999; margin-top:4px;">
+                거리: ${station.distance.toFixed(2)}km
+              </div>
+            </div>
+          `
+        });
+
+        // 트로피 클릭 핸들러를 content에 직접 포함
+        marker = new kakao.maps.CustomOverlay({
+          position: position,
+          content: `
+            <div style="position: relative; cursor: pointer;">
+              <div style="font-size: 32px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"
+                   onclick="window.openTrophyInfo_${station.id.replace(/[^a-zA-Z0-9]/g, '_')}()">
+                🏆
+              </div>
+            </div>
+          `,
+          yAnchor: 1,
+          clickable: true
+        });
+        marker.setMap(mapInstanceRef.current);
+
+        // 클릭 핸들러를 전역 함수로 등록
+        const funcName = `openTrophyInfo_${station.id.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        window[funcName] = () => {
+          // 기존 인포윈도우 닫기
+          if (currentInfoWindowRef.current) {
+            currentInfoWindowRef.current.close();
+          }
+          // 임시 마커를 생성해서 인포윈도우 위치 지정
+          const tempMarker = new kakao.maps.Marker({
+            position: position
+          });
+          infowindow.open(mapInstanceRef.current, tempMarker);
+          currentInfoWindowRef.current = infowindow;
+        };
+      } else {
+        // 일반 주유소 마커 (파란색)
+        marker = new kakao.maps.Marker({
+          position: position,
+          map: mapInstanceRef.current,
+          title: station.name
+        });
+
+        // 인포윈도우 추가
+        const infowindow = new kakao.maps.InfoWindow({
+          removable: true, // X 버튼으로 닫기 가능
+          content: `
+            <div style="padding:8px 12px; min-width:200px;">
+              <div style="font-weight:bold; font-size:14px; margin-bottom:4px;">
+                ${station.name}
+              </div>
+              <div style="font-size:12px; color:#666;">
+                ${station.brand} | ${station.price.toLocaleString()}원/L
+              </div>
+              <div style="font-size:11px; color:#999; margin-top:4px;">
+                거리: ${station.distance.toFixed(2)}km
+              </div>
+            </div>
+          `
+        });
+
+        // 마커 클릭 시 인포윈도우 표시 (기존 인포윈도우 닫기)
+        kakao.maps.event.addListener(marker, 'click', function() {
+          // 기존 인포윈도우 닫기
+          if (currentInfoWindowRef.current) {
+            currentInfoWindowRef.current.close();
+          }
+          infowindow.open(mapInstanceRef.current, marker);
+          currentInfoWindowRef.current = infowindow;
+        });
+      }
 
       stationMarkersRef.current.push(marker);
     });
