@@ -502,9 +502,19 @@ const GasStationDashboard = () => {
 
     // sortedStations 계산 (정렬된 배열)
     const sortedStations = [...stations].sort((a, b) => {
-      if (sortMode === 'price') return a.price - b.price;
-      if (sortMode === 'distance') return a.distance - b.distance;
+      if (sortMode === 'price') {
+        // 최저가 탭: 가격 오름차순 → 같으면 거리 오름차순
+        if (a.price !== b.price) return a.price - b.price;
+        return a.distance - b.distance;
+      }
 
+      if (sortMode === 'distance') {
+        // 최단거리 탭: 거리 오름차순 → 같으면 가격 오름차순
+        if (a.distance !== b.distance) return a.distance - b.distance;
+        return a.price - b.price;
+      }
+
+      // 가성비 탭: 순절약금액 내림차순
       const savingsA = calculateSavings(a.price, averagePrice, a.distance);
       const savingsB = calculateSavings(b.price, averagePrice, b.distance);
       return savingsB.netSavings - savingsA.netSavings;
@@ -517,14 +527,6 @@ const GasStationDashboard = () => {
       return '가성비 최우수';
     };
 
-    // 최저가 및 최저거리 주유소 찾기
-    const lowestPriceStation = sortedStations.reduce((min, station) =>
-      station.price < min.price ? station : min, sortedStations[0]
-    );
-    const closestStation = sortedStations.reduce((min, station) =>
-      station.distance < min.distance ? station : min, sortedStations[0]
-    );
-
     // 정렬된 주유소만 마커 표시
     sortedStations.forEach((station, index) => {
       if (!station.lat || !station.lng) {
@@ -533,18 +535,8 @@ const GasStationDashboard = () => {
 
       const position = new kakao.maps.LatLng(station.lat, station.lng);
 
-      // sortMode에 따라 트로피 표시 조건 변경
-      let isBestStation = false;
-      if (sortMode === 'price') {
-        // 최저가 탭: 최저가만 트로피
-        isBestStation = station.id === lowestPriceStation.id;
-      } else if (sortMode === 'distance') {
-        // 최단거리 탭: 최단거리만 트로피
-        isBestStation = station.id === closestStation.id;
-      } else {
-        // 가성비 탭: 1등만 트로피
-        isBestStation = index === 0;
-      }
+      // 정렬 기준에 따라 첫 번째(index === 0)가 베스트
+      const isBestStation = index === 0;
 
       let marker;
 
