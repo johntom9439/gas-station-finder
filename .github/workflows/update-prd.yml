@@ -51,6 +51,26 @@ jobs:
           with open('PRODUCT_REQUIREMENTS.md', 'r', encoding='utf-8') as f:
               markdown_content = f.read()
 
+          # 마크다운 기호 제거하여 깔끔한 텍스트로 변환
+          clean_text = markdown_content
+
+          # 헤더 기호 제거 (###, ##, # → 그냥 텍스트)
+          clean_text = re.sub(r'^### ', '', clean_text, flags=re.MULTILINE)
+          clean_text = re.sub(r'^## ', '', clean_text, flags=re.MULTILINE)
+          clean_text = re.sub(r'^# ', '', clean_text, flags=re.MULTILINE)
+
+          # 볼드 기호 제거 (**text** → text)
+          clean_text = re.sub(r'\*\*(.*?)\*\*', r'\1', clean_text)
+
+          # 리스트 마커 제거 (들여쓰기는 유지)
+          clean_text = re.sub(r'^(\s*)- ', r'\1• ', clean_text, flags=re.MULTILINE)
+          clean_text = re.sub(r'^(\s*)\d+\. ', r'\1', clean_text, flags=re.MULTILINE)
+
+          # 코드 블록 기호 제거 (```와 ` 제거)
+          clean_text = re.sub(r'```[\w]*\n', '', clean_text)
+          clean_text = re.sub(r'```', '', clean_text)
+          clean_text = re.sub(r'`([^`]+)`', r'\1', clean_text)
+
           # 기존 문서 내용 삭제
           document = service.documents().get(documentId=document_id).execute()
           doc_content = document.get('body').get('content')
@@ -61,6 +81,8 @@ jobs:
                   end_index = last_element['endIndex'] - 1
 
           requests = []
+
+          # 기존 내용 삭제
           if end_index > 1:
               requests.append({
                   'deleteContentRange': {
@@ -68,112 +90,21 @@ jobs:
                   }
               })
 
-          # 마크다운 파싱 및 포맷팅
-          lines = markdown_content.split('\n')
-          current_index = 1
-
-          for line in lines:
-              # 빈 줄
-              if not line.strip():
-                  requests.append({
-                      'insertText': {'location': {'index': current_index}, 'text': '\n'}
-                  })
-                  current_index += 1
-                  continue
-
-              # 헤더 파싱
-              if line.startswith('# '):
-                  text = line[2:] + '\n'
-                  requests.append({'insertText': {'location': {'index': current_index}, 'text': text}})
-                  requests.append({
-                      'updateParagraphStyle': {
-                          'range': {'startIndex': current_index, 'endIndex': current_index + len(text) - 1},
-                          'paragraphStyle': {'namedStyleType': 'HEADING_1'},
-                          'fields': 'namedStyleType'
-                      }
-                  })
-                  current_index += len(text)
-
-              elif line.startswith('## '):
-                  text = line[3:] + '\n'
-                  requests.append({'insertText': {'location': {'index': current_index}, 'text': text}})
-                  requests.append({
-                      'updateParagraphStyle': {
-                          'range': {'startIndex': current_index, 'endIndex': current_index + len(text) - 1},
-                          'paragraphStyle': {'namedStyleType': 'HEADING_2'},
-                          'fields': 'namedStyleType'
-                      }
-                  })
-                  current_index += len(text)
-
-              elif line.startswith('### '):
-                  text = line[4:] + '\n'
-                  requests.append({'insertText': {'location': {'index': current_index}, 'text': text}})
-                  requests.append({
-                      'updateParagraphStyle': {
-                          'range': {'startIndex': current_index, 'endIndex': current_index + len(text) - 1},
-                          'paragraphStyle': {'namedStyleType': 'HEADING_3'},
-                          'fields': 'namedStyleType'
-                      }
-                  })
-                  current_index += len(text)
-
-              # 리스트 (- 또는 숫자.)
-              elif line.strip().startswith('- ') or re.match(r'^\d+\. ', line.strip()):
-                  # 리스트 마커 제거
-                  if line.strip().startswith('- '):
-                      clean_text = line.strip()[2:] + '\n'
-                      is_bullet = True
-                  else:
-                      clean_text = re.sub(r'^\d+\. ', '', line.strip()) + '\n'
-                      is_bullet = False
-
-                  start_idx = current_index
-                  requests.append({'insertText': {'location': {'index': current_index}, 'text': clean_text}})
-                  current_index += len(clean_text)
-
-                  # 리스트 스타일 적용
-                  requests.append({
-                      'createParagraphBullets': {
-                          'range': {'startIndex': start_idx, 'endIndex': current_index - 1},
-                          'bulletPreset': 'BULLET_DISC_CIRCLE_SQUARE' if is_bullet else 'NUMBERED_DECIMAL_ALPHA_ROMAN'
-                      }
-                  })
-
-              # 일반 텍스트 (볼드 처리 포함)
-              else:
-                  # **볼드** 마크다운 처리
-                  text = line + '\n'
-                  clean_text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
-
-                  start_idx = current_index
-                  requests.append({'insertText': {'location': {'index': current_index}, 'text': clean_text}})
-
-                  # 볼드 영역 찾아서 스타일 적용
-                  bold_matches = list(re.finditer(r'\*\*(.*?)\*\*', text))
-                  offset = 0
-                  for match in bold_matches:
-                      bold_start = start_idx + match.start() - offset
-                      bold_end = start_idx + match.end() - offset - 4  # ** 4글자 제거
-                      requests.append({
-                          'updateTextStyle': {
-                              'range': {'startIndex': bold_start, 'endIndex': bold_end},
-                              'textStyle': {'bold': True},
-                              'fields': 'bold'
-                          }
-                      })
-                      offset += 4  # ** 제거된 만큼
-
-                  current_index += len(clean_text)
+          # 정리된 텍스트 삽입
+          requests.append({
+              'insertText': {
+                  'location': {'index': 1},
+                  'text': clean_text
+              }
+          })
 
           # API 호출
-          if requests:
-              service.documents().batchUpdate(
-                  documentId=document_id,
-                  body={'requests': requests}
-              ).execute()
+          service.documents().batchUpdate(
+              documentId=document_id,
+              body={'requests': requests}
+          ).execute()
 
-          print(f"✅ Google Docs 업데이트 완료 (포맷팅 적용)!")
+          print(f"✅ Google Docs 업데이트 완료 (깔끔한 텍스트)!")
           print(f"📄 Document ID: {document_id}")
           print(f"🔗 https://docs.google.com/document/d/{document_id}/edit")
           EOF
