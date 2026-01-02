@@ -28,6 +28,8 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -36,6 +38,8 @@ jobs:
           import os
           import json
           import subprocess
+          import time
+          import urllib.request
           from datetime import datetime, timezone, timedelta
           from google.oauth2 import service_account
           from googleapiclient.discovery import build
@@ -119,15 +123,67 @@ jobs:
               print(f"✅ {sheet_name} 기록 완료!")
               return result
 
-          # Frontend 배포 기록
+          # Render 배포 상태 확인 함수
+          def wait_for_render_deployment():
+              """Render 배포가 완료될 때까지 대기 (최대 10분)"""
+              render_api_key = os.environ.get('RENDER_API_KEY')
+              render_service_id = os.environ.get('RENDER_SERVICE_ID')
+
+              if not render_api_key or not render_service_id:
+                  print("⚠️ Render API 설정 없음 - 배포 상태 확인 스킵")
+                  return True
+
+              max_wait_time = 600  # 10분
+              check_interval = 30  # 30초마다 확인
+              elapsed_time = 0
+
+              print(f"⏳ Render 배포 완료 대기 중...")
+
+              while elapsed_time < max_wait_time:
+                  try:
+                      url = f"https://api.render.com/v1/services/{render_service_id}/deploys?limit=1"
+                      req = urllib.request.Request(url)
+                      req.add_header('Authorization', f'Bearer {render_api_key}')
+
+                      with urllib.request.urlopen(req) as response:
+                          data = json.loads(response.read().decode())
+
+                          if data and len(data) > 0:
+                              latest_deploy = data[0]
+                              status = latest_deploy.get('status')
+                              deploy_id = latest_deploy.get('id', 'unknown')
+
+                              print(f"  배포 상태: {status} (ID: {deploy_id})")
+
+                              if status == 'live':
+                                  print(f"✅ Render 배포 완료!")
+                                  return True
+                              elif status in ['build_failed', 'update_failed', 'canceled']:
+                                  print(f"❌ Render 배포 실패: {status}")
+                                  return False
+
+                      time.sleep(check_interval)
+                      elapsed_time += check_interval
+
+                  except Exception as e:
+                      print(f"⚠️ Render API 호출 실패: {e}")
+                      return True  # 에러 시 기록은 계속 진행
+
+              print(f"⏱️ 배포 대기 시간 초과 (10분)")
+              return True  # 타임아웃 시에도 기록은 진행
+
+          # Frontend 배포 기록 (Vercel은 즉시 기록)
           if frontend_changed:
               append_to_sheet('Frontend Deployments', 'Vercel')
               print(f"📦 Frontend 배포 기록됨")
 
-          # Backend 배포 기록
+          # Backend 배포 기록 (Render 배포 완료 후 기록)
           if backend_changed:
-              append_to_sheet('Backend Deployments', 'Render')
-              print(f"🚀 Backend 배포 기록됨")
+              if wait_for_render_deployment():
+                  append_to_sheet('Backend Deployments', 'Render')
+                  print(f"🚀 Backend 배포 기록됨")
+              else:
+                  print(f"❌ Backend 배포 실패 - 기록하지 않음")
 
           if not frontend_changed and not backend_changed:
               print(f"ℹ️ Frontend/Backend 코드 변경 없음 (문서 업데이트 등)")
