@@ -1,0 +1,97 @@
+name: Update PRD in Google Docs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'PRODUCT_REQUIREMENTS.md'
+
+jobs:
+  update-google-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
+
+      - name: Update Google Docs
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_DOCS_ID: ${{ secrets.GOOGLE_DOCS_ID }}
+        run: |
+          python3 << 'EOF'
+          import os
+          import json
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+
+          # Service Account 인증
+          credentials_dict = json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_KEY'])
+          credentials = service_account.Credentials.from_service_account_info(
+              credentials_dict,
+              scopes=['https://www.googleapis.com/auth/documents']
+          )
+
+          # Google Docs API 클라이언트
+          service = build('docs', 'v1', credentials=credentials)
+          document_id = os.environ['GOOGLE_DOCS_ID']
+
+          # PRODUCT_REQUIREMENTS.md 읽기
+          with open('PRODUCT_REQUIREMENTS.md', 'r', encoding='utf-8') as f:
+              markdown_content = f.read()
+
+          # 기존 문서 내용 가져오기
+          document = service.documents().get(documentId=document_id).execute()
+          doc_content = document.get('body').get('content')
+
+          # 문서의 전체 텍스트 길이 계산 (첫 번째 요소 제외)
+          end_index = 1
+          if len(doc_content) > 1:
+              last_element = doc_content[-1]
+              if 'endIndex' in last_element:
+                  end_index = last_element['endIndex'] - 1
+
+          # 문서 내용 전체 삭제 후 새 내용 삽입
+          requests = []
+
+          # 1. 기존 내용 삭제 (인덱스 1부터 끝까지)
+          if end_index > 1:
+              requests.append({
+                  'deleteContentRange': {
+                      'range': {
+                          'startIndex': 1,
+                          'endIndex': end_index
+                      }
+                  }
+              })
+
+          # 2. 새 내용 삽입
+          requests.append({
+              'insertText': {
+                  'location': {
+                      'index': 1
+                  },
+                  'text': markdown_content
+              }
+          })
+
+          # API 호출
+          result = service.documents().batchUpdate(
+              documentId=document_id,
+              body={'requests': requests}
+          ).execute()
+
+          print(f"✅ Google Docs 업데이트 완료!")
+          print(f"📄 Document ID: {document_id}")
+          print(f"🔗 https://docs.google.com/document/d/{document_id}/edit")
+          EOF

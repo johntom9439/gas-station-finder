@@ -1,0 +1,135 @@
+name: Record Deployment History
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  record-deployment:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2  # 최근 2개 커밋 가져오기 (변경사항 비교용)
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
+
+      - name: Record Deployment to Google Sheets
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 << 'EOF'
+          import os
+          import json
+          import subprocess
+          from datetime import datetime
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+
+          # Service Account 인증
+          credentials_dict = json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_KEY'])
+          credentials = service_account.Credentials.from_service_account_info(
+              credentials_dict,
+              scopes=['https://www.googleapis.com/auth/spreadsheets']
+          )
+
+          # Google Sheets API 클라이언트
+          service = build('sheets', 'v4', credentials=credentials)
+          spreadsheet_id = os.environ['GOOGLE_SHEETS_ID']
+
+          # Git 정보 가져오기
+          commit_sha = os.environ['GITHUB_SHA'][:7]
+          commit_message = subprocess.check_output(
+              ['git', 'log', '-1', '--pretty=%s'],
+              text=True
+          ).strip()
+          author = os.environ['GITHUB_ACTOR']
+          repository = os.environ['GITHUB_REPOSITORY']
+
+          # 변경된 파일 목록 가져오기
+          changed_files = subprocess.check_output(
+              ['git', 'diff', '--name-only', 'HEAD~1', 'HEAD'],
+              text=True
+          ).strip().split('\n')
+
+          # Frontend/Backend 변경 감지
+          frontend_changed = any(
+              f.startswith('src/') or
+              f.startswith('public/') or
+              (f == 'package.json' and not f.startswith('server/'))
+              for f in changed_files
+          )
+
+          backend_changed = any(
+              f.startswith('server/') or
+              f == 'server/package.json'
+              for f in changed_files
+          )
+
+          # 현재 시간
+          now = datetime.utcnow()
+          date_str = now.strftime('%Y-%m-%d')
+          time_str = now.strftime('%H:%M:%S')
+
+          # Compare URL
+          compare_url = f"https://github.com/{repository}/commit/{os.environ['GITHUB_SHA']}"
+
+          # 변경된 파일 목록 (최대 5개만 표시)
+          files_display = ', '.join(changed_files[:5])
+          if len(changed_files) > 5:
+              files_display += f' (+{len(changed_files) - 5} more)'
+
+          # Google Sheets에 기록
+          def append_to_sheet(sheet_name, platform):
+              values = [[
+                  date_str,
+                  time_str,
+                  commit_sha,
+                  commit_message,
+                  author,
+                  files_display,
+                  compare_url,
+                  'Deployed',
+                  platform
+              ]]
+
+              body = {'values': values}
+              result = service.spreadsheets().values().append(
+                  spreadsheetId=spreadsheet_id,
+                  range=f'{sheet_name}!A:I',
+                  valueInputOption='RAW',
+                  body=body
+              ).execute()
+
+              print(f"✅ {sheet_name} 기록 완료!")
+              return result
+
+          # Frontend 배포 기록
+          if frontend_changed:
+              append_to_sheet('Frontend Deployments', 'Vercel')
+              print(f"📦 Frontend 배포 기록됨")
+
+          # Backend 배포 기록
+          if backend_changed:
+              append_to_sheet('Backend Deployments', 'Render')
+              print(f"🚀 Backend 배포 기록됨")
+
+          if not frontend_changed and not backend_changed:
+              print(f"ℹ️ Frontend/Backend 코드 변경 없음 (문서 업데이트 등)")
+
+          print(f"\n📊 스프레드시트: https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit")
+          EOF
