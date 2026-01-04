@@ -148,8 +148,8 @@ async function tryOpinet(lat, lng, radius, apiKey) {
         let successCount = 0;
         let failCount = 0;
 
-        // 5개씩 배치 처리
-        const BATCH_SIZE = 5;
+        // 10개씩 배치 처리
+        const BATCH_SIZE = 10;
         for (let i = 0; i < stationsNeedingGeocode.length; i += BATCH_SIZE) {
           const batch = stationsNeedingGeocode.slice(i, i + BATCH_SIZE);
 
