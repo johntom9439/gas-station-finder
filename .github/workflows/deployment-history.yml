@@ -58,7 +58,7 @@ jobs:
           # Git 정보 가져오기
           commit_sha = os.environ['GITHUB_SHA'][:7]
           commit_message = subprocess.check_output(
-              ['git', 'log', '-1', '--pretty=%s'],
+              ['git', 'log', '-1', '--pretty=%B'],
               text=True
           ).strip()
           author = os.environ['GITHUB_ACTOR']
