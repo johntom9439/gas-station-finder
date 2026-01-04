@@ -167,10 +167,10 @@ jobs:
 
                   except Exception as e:
                       print(f"⚠️ Render API 호출 실패: {e}")
-                      return True  # 에러 시 기록은 계속 진행
+                      return False  # 에러 시 기록하지 않음
 
               print(f"⏱️ 배포 대기 시간 초과 (10분)")
-              return True  # 타임아웃 시에도 기록은 진행
+              return False  # 타임아웃 시 기록하지 않음
 
           # Frontend 배포 기록 (Vercel은 즉시 기록)
           if frontend_changed:

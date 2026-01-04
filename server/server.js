@@ -148,9 +148,12 @@ async function tryOpinet(lat, lng, radius, apiKey) {
         let successCount = 0;
         let failCount = 0;
 
-        const reverseGeocodingPromises = data.RESULT.OIL.map(async (station) => {
-          // 주소가 없고 WGS84 좌표가 있는 경우
-          if (!station.NEW_ADR && !station.VAN_ADR && station.WGS84_LAT && station.WGS84_LNG) {
+        // 5개씩 배치 처리
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < stationsNeedingGeocode.length; i += BATCH_SIZE) {
+          const batch = stationsNeedingGeocode.slice(i, i + BATCH_SIZE);
+
+          await Promise.all(batch.map(async (station) => {
             const address = await reverseGeocode(station.WGS84_LAT, station.WGS84_LNG);
             if (address) {
               station.REVERSE_GEOCODED_ADDRESS = address;
@@ -158,12 +161,11 @@ async function tryOpinet(lat, lng, radius, apiKey) {
             } else {
               failCount++;
             }
-          }
-          return station;
-        });
+          }));
 
-        // 모든 역지오코딩 완료 대기
-        data.RESULT.OIL = await Promise.all(reverseGeocodingPromises);
+          console.log(`   배치 ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(stationsNeedingGeocode.length / BATCH_SIZE)}: ${batch.length}개 처리 완료`);
+        }
+
         const geocodeEndTime = Date.now();
 
         console.log(`✅ 역지오코딩 완료 (${geocodeEndTime - geocodeStartTime}ms)`);
