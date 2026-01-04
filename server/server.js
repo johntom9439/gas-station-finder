@@ -79,13 +79,13 @@ async function tryOpinet(lat, lng, radius, apiKey) {
   const coords = convertCoordinates(lat, lng);
   const radiusInMeters = Math.round(radius * 1000);
   
-  console.log('🔄 변환된 좌표:');
-  Object.entries(coords).forEach(([system, coord]) => {
-    if (!coord.error) {
-      console.log(`   ${system}: x=${coord.x}, y=${coord.y}`);
-      console.log(`   설정: lon_0=127, y_0=600000`);
-    }
-  });
+  //console.log('🔄 변환된 좌표:');
+  //Object.entries(coords).forEach(([system, coord]) => {
+  //  if (!coord.error) {
+  //    console.log(`   ${system}: x=${coord.x}, y=${coord.y}`);
+  //    console.log(`   설정: lon_0=127, y_0=600000`);
+  //  }
+  //});
   
   // TM_OPINET 좌표계로 시도
   for (const [system, coord] of Object.entries(coords)) {
@@ -108,12 +108,12 @@ async function tryOpinet(lat, lng, radius, apiKey) {
         const firstStation = data.RESULT.OIL[0];
         const address = firstStation.NEW_ADR || firstStation.VAN_ADR || '';
 
-        console.log(`✅ ${count}개 주유소 발견`);
-        console.log(`\n📍 첫 번째 주유소:`);
-        console.log(`   이름: ${firstStation.OS_NM}`);
-        console.log(`   주소: ${address}`);
-        console.log(`   거리: ${firstStation.DISTANCE}m`);
-        console.log(`   가격: ${firstStation.PRICE}원`);
+       // console.log(`✅ ${count}개 주유소 발견`);
+       // console.log(`\n📍 첫 번째 주유소:`);
+       // console.log(`   이름: ${firstStation.OS_NM}`);
+       // console.log(`   주소: ${address}`);
+       // console.log(`   거리: ${firstStation.DISTANCE}m`);
+       // console.log(`   가격: ${firstStation.PRICE}원`);
 
         // 각 주유소의 KATEC 좌표를 WGS84로 역변환
         data.RESULT.OIL = data.RESULT.OIL.map(station => {
@@ -126,7 +126,7 @@ async function tryOpinet(lat, lng, radius, apiKey) {
             if (wgs84) {
               station.WGS84_LAT = wgs84.lat;
               station.WGS84_LNG = wgs84.lng;
-              console.log(`   🔄 ${station.OS_NM}: KATEC(${katecX}, ${katecY}) → WGS84(${wgs84.lat.toFixed(6)}, ${wgs84.lng.toFixed(6)})`);
+             // console.log(`   🔄 ${station.OS_NM}: KATEC(${katecX}, ${katecY}) → WGS84(${wgs84.lat.toFixed(6)}, ${wgs84.lng.toFixed(6)})`);
             }
           } else {
             console.log(`   ⚠️ ${station.OS_NM}: GIS 좌표 정보 없음`);
@@ -136,16 +136,27 @@ async function tryOpinet(lat, lng, radius, apiKey) {
         });
 
         // 주소 없는 주유소에 역지오코딩 적용
+        const stationsNeedingGeocode = data.RESULT.OIL.filter(
+          s => !s.NEW_ADR && !s.VAN_ADR && s.WGS84_LAT && s.WGS84_LNG
+        );
+
         console.log(`\n📍 역지오코딩 시작...`);
+        console.log(`   전체 주유소: ${data.RESULT.OIL.length}개`);
+        console.log(`   주소 없음: ${stationsNeedingGeocode.length}개`);
+
+        const geocodeStartTime = Date.now();
+        let successCount = 0;
+        let failCount = 0;
+
         const reverseGeocodingPromises = data.RESULT.OIL.map(async (station) => {
           // 주소가 없고 WGS84 좌표가 있는 경우
           if (!station.NEW_ADR && !station.VAN_ADR && station.WGS84_LAT && station.WGS84_LNG) {
             const address = await reverseGeocode(station.WGS84_LAT, station.WGS84_LNG);
             if (address) {
               station.REVERSE_GEOCODED_ADDRESS = address;
-              console.log(`   ✅ ${station.OS_NM}: ${address}`);
+              successCount++;
             } else {
-              console.log(`   ⚠️ ${station.OS_NM}: 역지오코딩 실패`);
+              failCount++;
             }
           }
           return station;
@@ -153,7 +164,10 @@ async function tryOpinet(lat, lng, radius, apiKey) {
 
         // 모든 역지오코딩 완료 대기
         data.RESULT.OIL = await Promise.all(reverseGeocodingPromises);
-        console.log(`✅ 역지오코딩 완료\n`);
+        const geocodeEndTime = Date.now();
+
+        console.log(`✅ 역지오코딩 완료 (${geocodeEndTime - geocodeStartTime}ms)`);
+        console.log(`   성공: ${successCount}개, 실패: ${failCount}개\n`);
 
         // 지역 확인 및 피드백
         if (address.includes('서울') || address.includes('경기')) {
@@ -233,14 +247,10 @@ app.listen(PORT, () => {
   console.log(`========================================`);
   console.log(`📍 서버: http://localhost:${PORT}`);
   console.log(`\n📐 현재 TM 좌표계 설정:`);
-  console.log(`   lon_0 = 127 (기준 경도)`);
+  console.log(`   lon_0 = 128 (기준 경도)`);
   console.log(`   lat_0 = 38 (기준 위도)`);
   console.log(`   y_0 = 600000`);
-  console.log(`   x_0 = 200000`);
-  console.log(`   k = 1`);
-  console.log(`\n💡 lon_0 조정 가이드:`);
-  console.log(`   인천이 나오면 → lon_0을 127.5~128로 증가`);
-  console.log(`   강원도가 나오면 → lon_0을 126~126.5로 감소`);
-  console.log(`   서울/경기가 나올 때까지 0.1~0.5씩 조정`);
+  console.log(`   x_0 = 400000`);
+  console.log(`   k = 0.9999`);
   console.log(`========================================\n`);
 });
