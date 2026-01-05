@@ -154,7 +154,11 @@ jobs:
                           print(f"  🔍 전체 API 응답: {json.dumps(data, indent=2)}")
 
                           if data and len(data) > 0:
-                              latest_deploy = data[0]
+                              # Render API 응답 구조: [{"deploy": {...}, "cursor": "..."}]
+                              deploy_wrapper = data[0]
+
+                              # 'deploy' 키 안의 실제 배포 객체 가져오기
+                              latest_deploy = deploy_wrapper.get('deploy', {})
 
                               # 디버깅: 배포 객체 구조 출력
                               print(f"  🔍 배포 객체 키: {list(latest_deploy.keys())}")
