@@ -1,5 +1,5 @@
 // Gas Station Finder Backend - Opinet API Proxy Server
-// Provides coordinate conversion (WGS84 ↔ TM_OPINET) and route navigation
+// Features: Coordinate conversion (WGS84 ↔ TM_OPINET), Route navigation, Reverse geocoding
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
