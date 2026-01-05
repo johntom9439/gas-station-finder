@@ -5,7 +5,7 @@ const proj4 = require('proj4');
 require('dotenv').config();
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001; // Render는 환경변수 PORT 사용
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST'], credentials: true }));
 
