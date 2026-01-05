@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Navigation, TrendingDown, Search, Fuel, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MapPin, Navigation, TrendingDown, Search, Fuel, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // 오피넷 API 설정
 const BACKEND_API_URL = process.env.NODE_ENV === 'development'
@@ -453,6 +453,85 @@ const styles = {
     overflowY: 'auto',
     padding: '1rem',
   },
+  // 모바일 헤더
+  mobileHeader: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+    color: 'white',
+    padding: '1rem',
+    zIndex: 1000,
+    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+  },
+  // 새로운 바텀 시트 (항상 표시)
+  mobileBottomSheetNew: {
+    position: 'fixed',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    background: 'white',
+    borderRadius: '1.5rem 1.5rem 0 0',
+    boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.15)',
+    zIndex: 2000,
+    height: '45vh',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  // 바텀 시트 드래그 핸들
+  bottomSheetHandle: {
+    display: 'flex',
+    justifyContent: 'center',
+    padding: '0.75rem',
+    cursor: 'grab',
+  },
+  bottomSheetHandleBar: {
+    width: '40px',
+    height: '4px',
+    background: '#d1d5db',
+    borderRadius: '2px',
+  },
+  // 바텀 시트 컨텐츠 (스크롤 가능)
+  bottomSheetContent: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: '0 1rem 1rem 1rem',
+  },
+  // 탭 바 (sticky)
+  mobileTabBar: {
+    display: 'flex',
+    gap: '0.5rem',
+    padding: '0.75rem 0',
+    position: 'sticky',
+    top: 0,
+    background: 'white',
+    zIndex: 10,
+    borderBottom: '1px solid #e5e7eb',
+    marginBottom: '0.75rem',
+  },
+  // 탭 버튼
+  mobileTabButton: {
+    flex: 1,
+    padding: '0.75rem',
+    border: 'none',
+    borderRadius: '0.5rem',
+    fontSize: '0.875rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+  },
+  mobileTabButtonActive: {
+    background: '#2563eb',
+    color: 'white',
+  },
+  mobileTabButtonInactive: {
+    background: '#f3f4f6',
+    color: '#6b7280',
+  },
 };
 
 const calculateTravelCost = (distance, fuelPrice) => {
@@ -488,7 +567,6 @@ const GasStationDashboard = () => {
   const [kakaoLoaded, setKakaoLoaded] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [bottomSheetOpen, setBottomSheetOpen] = useState(false);
   const hasLoadedRef = React.useRef(false); // 중복 로드 방지
   const mapRef = React.useRef(null); // 지도 DOM 참조
   const mapInstanceRef = React.useRef(null); // 지도 인스턴스
@@ -664,7 +742,18 @@ const GasStationDashboard = () => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.relayout();
           mapInstanceRef.current.setCenter(newCenter);
-          console.log('✅ 지도 레이아웃 재조정 및 중심 설정 완료');
+
+          // 모바일: 바텀 시트(45vh)를 고려해서 지도를 아래로 이동
+          // 바텀 시트의 절반만큼 아래로 panBy (가시 영역 중앙에 마커 배치)
+          if (isMobile) {
+            const screenHeight = window.innerHeight;
+            const bottomSheetHeight = screenHeight * 0.45; // 45vh
+            const offsetY = bottomSheetHeight / 2; // 절반만큼 아래로
+            mapInstanceRef.current.panBy(0, offsetY);
+            console.log(`📱 모바일 지도 중심 조정: ${Math.round(offsetY)}px 아래로 이동`);
+          } else {
+            console.log('✅ 지도 레이아웃 재조정 및 중심 설정 완료');
+          }
         }
       }, 200);
     } else {
@@ -1279,10 +1368,37 @@ const GasStationDashboard = () => {
   if (isMobile) {
     return (
       <>
-        <div style={{ ...styles.container, padding: '1rem' }}>
-          <div style={styles.maxWidth}>
-            {/* 1. 주소 검색 영역 (컴팩트) */}
-            <div style={{ ...styles.card, padding: '1rem', marginBottom: '0.75rem' }}>
+        {/* 최상단 헤더 */}
+        <div style={styles.mobileHeader}>
+          <Fuel size={24} />
+          <h1 style={{ fontSize: '1.125rem', fontWeight: 'bold', margin: 0 }}>
+            스마트 주유소 찾기
+          </h1>
+        </div>
+
+        {/* 지도 (전체 화면 배경) */}
+        <div style={{
+          position: 'fixed',
+          top: '60px',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 0
+        }}>
+          <div ref={mapRef} style={{ width: '100%', height: '100%' }}></div>
+        </div>
+
+        {/* 새로운 바텀 시트 (항상 표시) */}
+        <div style={styles.mobileBottomSheetNew}>
+          {/* 드래그 핸들 */}
+          <div style={styles.bottomSheetHandle}>
+            <div style={styles.bottomSheetHandleBar}></div>
+          </div>
+
+          {/* 컨텐츠 */}
+          <div style={styles.bottomSheetContent}>
+            {/* 주소 검색 영역 */}
+            <div style={{ marginBottom: '1rem' }}>
               <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
                 <div style={{ ...styles.inputWrapper, flex: 1 }}>
                   <MapPin size={16} style={styles.inputIcon} />
@@ -1301,7 +1417,7 @@ const GasStationDashboard = () => {
                 </button>
               </div>
 
-              {/* 2. 검색 반경 (컴팩트) */}
+              {/* 검색 반경 슬라이더 */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
                 <label style={{ fontSize: '0.75rem', fontWeight: '600', color: '#374151' }}>검색 반경</label>
                 <span style={{ fontSize: '0.875rem', fontWeight: 'bold', color: '#2563eb' }}>{radius.toFixed(1)}km</span>
@@ -1317,186 +1433,39 @@ const GasStationDashboard = () => {
               />
             </div>
 
-          {/* 3. 지도 영역 */}
-          <div style={{ ...styles.card, padding: '1rem', marginBottom: '0.75rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-              <MapPin size={18} color="#2563eb" />
-              <h2 style={{ fontSize: '1rem', fontWeight: 'bold', color: '#111827', margin: 0 }}>
-                주변 지도
-              </h2>
+            {/* 탭 바 (sticky) */}
+            <div style={styles.mobileTabBar}>
+              <button
+                onClick={() => setSortMode('price')}
+                style={{
+                  ...styles.mobileTabButton,
+                  ...(sortMode === 'price' ? styles.mobileTabButtonActive : styles.mobileTabButtonInactive)
+                }}
+              >
+                💰 최저가
+              </button>
+              <button
+                onClick={() => setSortMode('distance')}
+                style={{
+                  ...styles.mobileTabButton,
+                  ...(sortMode === 'distance' ? styles.mobileTabButtonActive : styles.mobileTabButtonInactive)
+                }}
+              >
+                📍 최단거리
+              </button>
+              <button
+                onClick={() => setSortMode('efficiency')}
+                style={{
+                  ...styles.mobileTabButton,
+                  ...(sortMode === 'efficiency' ? styles.mobileTabButtonActive : styles.mobileTabButtonInactive)
+                }}
+              >
+                ⚡ 가성비
+              </button>
             </div>
-            <div ref={mapRef} style={{ ...styles.mapContainer, height: '300px', minHeight: '300px' }}></div>
-            <div style={{ fontSize: '0.625rem', color: '#6b7280', marginTop: '0.5rem', textAlign: 'center' }}>
-              🔴 현재 위치 | 🔵 주유소 ({stations.filter(s => s.lat && s.lng).length}개) | 반경 {radius.toFixed(1)}km
-            </div>
-          </div>
 
-          {/* 4. 각 조건별 1등 주유소 정보 */}
-          <div style={{ marginBottom: '0.75rem' }}>
-            <h3 style={{ fontSize: '0.875rem', fontWeight: 'bold', color: '#111827', marginBottom: '0.5rem', paddingLeft: '0.25rem' }}>
-              🏆 조건별 Best 주유소
-            </h3>
-
-            {/* 최저가 1등 */}
-            {lowestPriceStation && (
-              <div style={{ ...styles.stationCard, marginBottom: '0.5rem', border: '2px solid #2563eb' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <div>
-                    <span style={{ ...styles.badgeBlue, marginRight: '0.5rem', fontSize: '0.625rem' }}>💰 최저가</span>
-                    <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#111827' }}>
-                      {lowestPriceStation.name}
-                    </span>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#111827' }}>
-                      {lowestPriceStation.price.toLocaleString()}
-                      <span style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.25rem' }}>원/L</span>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                  {lowestPriceStation.brand} | {lowestPriceStation.distance.toFixed(2)}km
-                </div>
-              </div>
-            )}
-
-            {/* 최단거리 1등 */}
-            {closestStation && (
-              <div style={{ ...styles.stationCard, marginBottom: '0.5rem', border: '2px solid #8b5cf6' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <div>
-                    <span style={{ background: '#8b5cf6', color: 'white', padding: '0.25rem 0.5rem', fontSize: '0.625rem', fontWeight: 'bold', borderRadius: '0.25rem', marginRight: '0.5rem' }}>📍 최단거리</span>
-                    <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#111827' }}>
-                      {closestStation.name}
-                    </span>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#111827' }}>
-                      {closestStation.distance.toFixed(2)}
-                      <span style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.25rem' }}>km</span>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                  {closestStation.brand} | {closestStation.price.toLocaleString()}원/L
-                </div>
-              </div>
-            )}
-
-            {/* 가성비 1등 */}
-            {bestEfficiencyStation && bestEfficiencySavings && (
-              <div style={{ ...styles.stationCard, marginBottom: '0.5rem', border: '2px solid #10b981' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <div>
-                    <span style={{ background: '#10b981', color: 'white', padding: '0.25rem 0.5rem', fontSize: '0.625rem', fontWeight: 'bold', borderRadius: '0.25rem', marginRight: '0.5rem' }}>⚡ 가성비</span>
-                    <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#111827' }}>
-                      {bestEfficiencyStation.name}
-                    </span>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#10b981' }}>
-                      {bestEfficiencySavings.netSavings > 0 ? '+' : ''}{bestEfficiencySavings.netSavings.toLocaleString()}
-                      <span style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: '0.25rem' }}>원</span>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                  {bestEfficiencyStation.brand} | {bestEfficiencyStation.price.toLocaleString()}원/L | {bestEfficiencyStation.distance.toFixed(2)}km
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 5. 더보기 버튼 */}
-          <button
-            onClick={() => setBottomSheetOpen(true)}
-            style={{
-              ...styles.button,
-              width: '100%',
-              padding: '0.875rem',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.5rem'
-            }}
-          >
-            전체 주유소 보기 ({stations.length}개)
-            <Navigation size={18} />
-          </button>
-
-          {/* Footer */}
-          <div style={{ ...styles.card, textAlign: 'center', fontSize: '0.75rem', color: '#6b7280', marginTop: '1rem', padding: '0.75rem' }}>
-            <p style={{ margin: 0, fontSize: '0.625rem' }}>
-              데이터 출처: 오피넷(Opinet) API | 연비 기준: 12km/L (왕복 계산)
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* 바텀시트 오버레이 */}
-      {bottomSheetOpen && (
-        <div
-          style={styles.bottomSheetOverlay}
-          onClick={() => setBottomSheetOpen(false)}
-        />
-      )}
-
-      {/* 바텀시트 */}
-      <div style={{
-        ...styles.bottomSheet,
-        ...(bottomSheetOpen ? {} : styles.bottomSheetClosed)
-      }}>
-        <div style={{ padding: '1rem' }}>
-          {/* 핸들 */}
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-            <div style={{ width: '40px', height: '4px', background: '#d1d5db', borderRadius: '2px' }}></div>
-          </div>
-
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: '#111827', marginBottom: '1rem' }}>
-            전체 주유소 ({stations.length}개)
-          </h2>
-
-          {/* Tabs */}
-          <div style={{ ...styles.tabs, marginBottom: '1rem' }}>
-            <button
-              onClick={() => setSortMode('price')}
-              style={{
-                ...styles.tab,
-                ...(sortMode === 'price' ? styles.tabActive : styles.tabInactive),
-                fontSize: '0.875rem',
-                padding: '0.625rem'
-              }}
-            >
-              💰 최저가
-            </button>
-            <button
-              onClick={() => setSortMode('distance')}
-              style={{
-                ...styles.tab,
-                ...(sortMode === 'distance' ? styles.tabActive : styles.tabInactive),
-                fontSize: '0.875rem',
-                padding: '0.625rem'
-              }}
-            >
-              📍 최단거리
-            </button>
-            <button
-              onClick={() => setSortMode('efficiency')}
-              style={{
-                ...styles.tab,
-                ...(sortMode === 'efficiency' ? styles.tabActive : styles.tabInactive),
-                fontSize: '0.875rem',
-                padding: '0.625rem'
-              }}
-            >
-              ⚡ 가성비
-            </button>
-          </div>
-
-          {/* 주유소 리스트 */}
-          {loading ? (
+            {/* 주유소 리스트 */}
+            {loading ? (
             <div style={{ textAlign: 'center', padding: '2rem' }}>
               <div style={{ fontSize: '1rem', color: '#6b7280' }}>
                 로딩 중...
@@ -1517,7 +1486,7 @@ const GasStationDashboard = () => {
                   key={station.id}
                   style={{
                     ...styles.stationCard,
-                    border: index === 0 ? '2px solid #2563eb' : 'none',
+                    //border: index === 0 ? '2px solid #2563eb' : 'none',
                     padding: '0.875rem',
                     marginBottom: '0.5rem',
                     cursor: 'pointer'
@@ -1566,8 +1535,8 @@ const GasStationDashboard = () => {
               );
             })
           )}
+          </div>
         </div>
-      </div>
 
       {/* Route Panel */}
       {showRoutePanel && (
