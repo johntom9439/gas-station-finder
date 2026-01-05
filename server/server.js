@@ -239,6 +239,48 @@ app.get('/api/stations', async (req, res) => {
   }
 });
 
+// 경로 안내 API (Kakao Mobility Directions)
+app.get('/api/route', async (req, res) => {
+  try {
+    const { origin, destination } = req.query;
+
+    if (!origin || !destination) {
+      return res.status(400).json({ error: 'origin and destination required' });
+    }
+
+    console.log(`📍 경로 요청: ${origin} → ${destination}`);
+
+    // Kakao Mobility Directions API 호출
+    const url = `https://apis-navi.kakaomobility.com/v1/directions?` +
+      `origin=${origin}&destination=${destination}&priority=RECOMMEND&car_fuel=GASOLINE`;
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `KakaoAK ${process.env.KAKAO_REST_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Kakao API 오류 (${response.status}):`, errorText);
+      return res.status(response.status).json({
+        error: 'Kakao API error',
+        details: errorText
+      });
+    }
+
+    const data = await response.json();
+    console.log('✅ 경로 조회 성공');
+
+    res.json(data);
+
+  } catch (error) {
+    console.error('❌ 경로 API 오류:', error);
+    res.status(500).json({ error: 'Failed to fetch route', details: error.message });
+  }
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: '서버 작동 중' });
 });

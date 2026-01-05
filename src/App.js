@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Navigation, TrendingDown, Search, Fuel, Clock, Info, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MapPin, Navigation, TrendingDown, Search, Fuel, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // 오피넷 API 설정
 const BACKEND_API_URL = process.env.NODE_ENV === 'development'
@@ -104,6 +104,26 @@ const fetchNearbyStations = async (lat, lng, radius) => {
     // API 실패 시 빈 배열 반환
     return [];
   }
+};
+
+// 방향 아이콘 매핑 함수
+const getDirectionIcon = (type) => {
+  const iconMap = {
+    1: '⬅️',   // 좌회전
+    2: '➡️',   // 우회전
+    3: '↩️',   // U턴
+    4: '⬆️',   // 직진
+    5: '↖️',   // 왼쪽 방향
+    6: '↗️',   // 오른쪽 방향
+    7: '🛣️',   // 고속도로 진입
+    8: '🛣️',   // 고속도로 진출
+    11: '⬅️',  // 왼쪽 차선
+    12: '➡️',  // 오른쪽 차선
+    14: '🚇',  // 터널
+    15: '🌉',  // 육교
+    200: '⬆️'  // 직진
+  };
+  return iconMap[type] || '⬆️';
 };
 
 const styles = {
@@ -324,46 +344,42 @@ const styles = {
     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
   },
   sidebar: {
-    position: 'fixed',
-    left: 0,
-    top: 0,
+    width: '450px',
+    minWidth: '450px',
+    maxWidth: '450px',
     height: '100vh',
     background: 'white',
     boxShadow: '2px 0 10px rgba(0, 0, 0, 0.1)',
-    transition: 'transform 0.3s ease',
-    zIndex: 1000,
+    transition: 'transform 0.3s ease, margin-left 0.3s ease',
     overflowY: 'auto',
-    width: '450px',
+    position: 'relative',
   },
   sidebarCollapsed: {
-    transform: 'translateX(-100%)',
+    marginLeft: '-450px',
   },
   sidebarToggle: {
-    position: 'fixed',
+    position: 'absolute',
     left: '450px',
-    top: '10px',
-    padding: '0.5rem',
-    background: '#2563eb',
-    color: 'white',
-    border: 'none',
+    top: '95px',
+    padding: '1.5rem 0.1rem',
+    background: 'white',
+    color: '#374151',
+    border: '1px solid #e5e7eb',
+    borderLeft: 'none',
     borderRadius: '0 0.5rem 0.5rem 0',
     cursor: 'pointer',
-    boxShadow: '2px 2px 8px rgba(0, 0, 0, 0.2)',
-    zIndex: 1001,
+    boxShadow: '2px 0 8px rgba(0, 0, 0, 0.1)',
+    zIndex: 9999,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     transition: 'left 0.3s ease',
+    '&:hover': {
+      background: '#f9fafb',
+    }
   },
   sidebarToggleCollapsed: {
     left: '0',
-  },
-  mainContentWithSidebar: {
-    marginLeft: '470px',
-    transition: 'margin-left 0.3s ease',
-  },
-  mainContentWithSidebarCollapsed: {
-    marginLeft: '0',
   },
   bottomSheet: {
     position: 'fixed',
@@ -409,6 +425,34 @@ const styles = {
     cursor: 'pointer',
     accentColor: '#2563eb',
   },
+  // 경로 패널 스타일 (데스크톱 - 중간 컬럼)
+  routePanel: {
+    width: '380px',
+    minWidth: '380px',
+    maxWidth: '380px',
+    background: 'white',
+    borderRight: '1px solid #e5e7eb',
+    overflowY: 'auto',
+    padding: '1.5rem',
+    height: '100vh',
+    position: 'sticky',
+    top: 0,
+  },
+  // 경로 패널 스타일 (모바일)
+  routePanelMobile: {
+    position: 'fixed',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    background: 'white',
+    borderRadius: '1rem 1rem 0 0',
+    boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.15)',
+    transition: 'transform 0.3s ease',
+    zIndex: 3000,
+    maxHeight: '80vh',
+    overflowY: 'auto',
+    padding: '1rem',
+  },
 };
 
 const calculateTravelCost = (distance, fuelPrice) => {
@@ -433,13 +477,13 @@ const calculateSavings = (stationPrice, averagePrice, distance) => {
 };
 
 const GasStationDashboard = () => {
-  const [address, setAddress] = useState('서울시청');
+  const [address, setAddress] = useState('위치 확인 중...');
   const [radius, setRadius] = useState(5.0); // 기본값 5km (오피넷 API 최대 반경)
   const [allStations, setAllStations] = useState([]); // 5km 내 모든 주유소
   const [stations, setStations] = useState([]); // radius로 필터링된 주유소
   const [sortMode, setSortMode] = useState('price');
   const [hoveredCard, setHoveredCard] = useState(null);
-  const [coordinates, setCoordinates] = useState({ lat: 37.5664, lng: 126.9778 });
+  const [coordinates, setCoordinates] = useState(null); // 초기값 null로 변경
   const [loading, setLoading] = useState(false);
   const [kakaoLoaded, setKakaoLoaded] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -452,6 +496,16 @@ const GasStationDashboard = () => {
   const circleRef = React.useRef(null); // 검색 반경 원
   const stationMarkersRef = React.useRef([]); // 주유소 마커들
   const currentInfoWindowRef = React.useRef(null); // 현재 열린 인포윈도우
+
+  // 경로 안내 관련 state
+  const [selectedStation, setSelectedStation] = useState(null); // 선택된 주유소
+  const [routeData, setRouteData] = useState(null); // 경로 데이터
+  const [showRoutePanel, setShowRoutePanel] = useState(false); // 경로 패널 표시 여부
+  const [routeLoading, setRouteLoading] = useState(false); // 경로 로딩 상태
+  const [routeError, setRouteError] = useState(null); // 경로 에러
+  const routePolylineRef = React.useRef(null); // 경로 폴리라인
+  const originMarkerRef = React.useRef(null); // 출발지 마커
+  const destinationMarkerRef = React.useRef(null); // 도착지 마커
 
   // 반응형 처리
   useEffect(() => {
@@ -492,6 +546,20 @@ const GasStationDashboard = () => {
     }
   }, [isMobile]);
 
+  // 사이드바 토글 시 지도 크기 재조정
+  useEffect(() => {
+    if (mapInstanceRef.current && !isMobile) {
+      // 애니메이션 완료 후 relayout 호출 (transition이 0.3s)
+      setTimeout(() => {
+        mapInstanceRef.current.relayout();
+        // 현재 중심점 유지
+        if (coordinates) {
+          mapInstanceRef.current.setCenter(new window.kakao.maps.LatLng(coordinates.lat, coordinates.lng));
+        }
+      }, 350); // 300ms transition + 50ms 버퍼
+    }
+  }, [sidebarCollapsed, isMobile, coordinates]);
+
   // 카카오 지도 API 로드 확인
   useEffect(() => {
     const checkKakao = () => {
@@ -531,7 +599,10 @@ const GasStationDashboard = () => {
           (error) => {
             // 실패 또는 권한 거부: 서울시청 fallback
             console.warn('⚠️ 위치 권한 거부 또는 실패, 서울시청으로 기본 설정:', error.message);
-            loadStations(); // 기본 좌표(서울시청)로 로드
+            const fallbackLocation = { lat: 37.5664, lng: 126.9778 };
+            setCoordinates(fallbackLocation);
+            setAddress('서울시청');
+            loadStations(fallbackLocation.lat, fallbackLocation.lng); // 서울시청 좌표로 로드
           },
           {
             enableHighAccuracy: true, // 고정밀 위치
@@ -542,7 +613,10 @@ const GasStationDashboard = () => {
       } else {
         // Geolocation API 미지원 브라우저
         console.warn('⚠️ Geolocation API 미지원, 서울시청으로 기본 설정');
-        loadStations();
+        const fallbackLocation = { lat: 37.5664, lng: 126.9778 };
+        setCoordinates(fallbackLocation);
+        setAddress('서울시청');
+        loadStations(fallbackLocation.lat, fallbackLocation.lng);
       }
     }
   }, []); // ✅ 컴포넌트 마운트 시 한 번만 호출 (Strict Mode에서도)
@@ -555,7 +629,7 @@ const GasStationDashboard = () => {
 
   // 카카오맵 초기화 및 업데이트
   useEffect(() => {
-    if (!kakaoLoaded || !mapRef.current) return;
+    if (!kakaoLoaded || !mapRef.current || !coordinates) return;
 
     const kakao = window.kakao;
 
@@ -634,6 +708,48 @@ const GasStationDashboard = () => {
 
   }, [coordinates, radius, kakaoLoaded, isMobile]);
 
+  // 경로 폴리라인 정리 (주유소 선택 변경 시)
+  useEffect(() => {
+    return () => {
+      if (routePolylineRef.current) {
+        routePolylineRef.current.setMap(null);
+        routePolylineRef.current = null;
+      }
+    };
+  }, [selectedStation]);
+
+  // 경로 패널 열림/닫힘에 따라 마커와 원 표시/숨김
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+
+    if (showRoutePanel) {
+      // 경로 패널 열림 → 마커와 원 숨김
+      if (centerMarkerRef.current) {
+        centerMarkerRef.current.setMap(null);
+      }
+      if (circleRef.current) {
+        circleRef.current.setMap(null);
+      }
+      stationMarkersRef.current.forEach(marker => {
+        if (marker.setMap) marker.setMap(null);
+      });
+      if (currentInfoWindowRef.current) {
+        currentInfoWindowRef.current.close();
+      }
+    } else {
+      // 경로 패널 닫힘 → 마커와 원 다시 표시
+      if (centerMarkerRef.current && coordinates) {
+        centerMarkerRef.current.setMap(mapInstanceRef.current);
+      }
+      if (circleRef.current) {
+        circleRef.current.setMap(mapInstanceRef.current);
+      }
+      stationMarkersRef.current.forEach(marker => {
+        if (marker.setMap) marker.setMap(mapInstanceRef.current);
+      });
+    }
+  }, [showRoutePanel, coordinates]);
+
   // 주유소 마커 업데이트 (검색 반경 내의 주유소만)
   useEffect(() => {
     if (!kakaoLoaded || !mapInstanceRef.current) return;
@@ -656,6 +772,9 @@ const GasStationDashboard = () => {
         delete window[key];
       }
     });
+
+    // 경로 패널이 열려있으면 마커를 생성하지 않음
+    if (showRoutePanel) return;
 
     // 평균 가격 계산
     const averagePrice = stations.length > 0
@@ -797,10 +916,14 @@ const GasStationDashboard = () => {
       console.log(`✅ ${markerCount}개 주유소 마커 표시 완료 (반경 ${radius.toFixed(1)}km 내)`);
     }
 
-  }, [stations, kakaoLoaded, radius, sortMode, isMobile]);
+  }, [stations, kakaoLoaded, radius, sortMode, isMobile, showRoutePanel]);
 
   // 주유소 데이터 로드 (항상 5km 기준 - 오피넷 API 최대 반경)
-  const loadStations = async (lat = coordinates.lat, lng = coordinates.lng) => {
+  const loadStations = async (lat, lng) => {
+    if (!lat || !lng) {
+      console.warn('⚠️ 좌표가 없어 주유소 로드를 건너뜁니다.');
+      return;
+    }
     setLoading(true);
     try {
       console.log(`📡 주유소 검색 중: lat=${lat}, lng=${lng}, radius=5km`);
@@ -815,6 +938,227 @@ const GasStationDashboard = () => {
       setStations([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 경로 조회 함수
+  const fetchRoute = async (originLat, originLng, destLat, destLng) => {
+    try {
+      setRouteLoading(true);
+      setRouteError(null);
+
+      console.log(`📍 경로 조회: (${originLat}, ${originLng}) → (${destLat}, ${destLng})`);
+
+      // 백엔드 API 호출 (lng, lat 순서)
+      const response = await fetch(
+        `${BACKEND_API_URL}/api/route?origin=${originLng},${originLat}&destination=${destLng},${destLat}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`경로 조회 실패: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ 경로 데이터 수신:', data);
+
+      if (data.routes && data.routes.length > 0) {
+        setRouteData(data.routes[0]);
+        drawRouteOnMap(data.routes[0]);
+        fitMapToRoute(data.routes[0]);
+      } else {
+        throw new Error('경로를 찾을 수 없습니다');
+      }
+
+    } catch (error) {
+      console.error('❌ 경로 조회 실패:', error);
+      setRouteError('경로를 불러올 수 없습니다. 다시 시도해주세요.');
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
+  // 지도에 경로 그리기
+  const drawRouteOnMap = (route) => {
+    if (!mapInstanceRef.current || !window.kakao || !coordinates) return;
+
+    // 기존 경로 제거
+    if (routePolylineRef.current) {
+      routePolylineRef.current.setMap(null);
+      routePolylineRef.current = null;
+    }
+
+    // 기존 출발지/도착지 마커 제거
+    if (originMarkerRef.current) {
+      originMarkerRef.current.setMap(null);
+      originMarkerRef.current = null;
+    }
+    if (destinationMarkerRef.current) {
+      destinationMarkerRef.current.setMap(null);
+      destinationMarkerRef.current = null;
+    }
+
+    const kakao = window.kakao;
+    const path = [];
+
+    // 경로 좌표 추출
+    route.sections.forEach(section => {
+      section.roads.forEach(road => {
+        // vertexes 배열: [lng1, lat1, lng2, lat2, ...]
+        for (let i = 0; i < road.vertexes.length; i += 2) {
+          const lng = road.vertexes[i];
+          const lat = road.vertexes[i + 1];
+          path.push(new kakao.maps.LatLng(lat, lng));
+        }
+      });
+    });
+
+    // 폴리라인 생성
+    const polyline = new kakao.maps.Polyline({
+      path: path,
+      strokeWeight: 5,
+      strokeColor: '#2563eb',
+      strokeOpacity: 0.8,
+      strokeStyle: 'solid'
+    });
+
+    polyline.setMap(mapInstanceRef.current);
+    routePolylineRef.current = polyline;
+
+    // 출발지 마커 생성 (빨간색) - 경로의 첫 번째 좌표 사용
+    const originPosition = path[0];
+    const originMarker = new kakao.maps.Marker({
+      position: originPosition,
+      map: mapInstanceRef.current,
+      image: new kakao.maps.MarkerImage(
+        'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png',
+        new kakao.maps.Size(34, 48)
+      )
+    });
+    originMarkerRef.current = originMarker;
+
+    // 도착지 마커 생성 (주황색/목적지) - 경로의 마지막 좌표 사용
+    const destPosition = path[path.length - 1];
+    const destMarker = new kakao.maps.Marker({
+      position: destPosition,
+      map: mapInstanceRef.current,
+      image: new kakao.maps.MarkerImage(
+        'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png',
+        new kakao.maps.Size(24, 35)
+      )
+    });
+    destinationMarkerRef.current = destMarker;
+
+    console.log(`✅ 경로 폴리라인 및 출발지/도착지 마커 생성 완료 (${path.length}개 좌표)`);
+  };
+
+  // 지도 범위를 경로에 맞게 조정
+  const fitMapToRoute = (route) => {
+    if (!mapInstanceRef.current || !window.kakao) return;
+
+    const kakao = window.kakao;
+    const bounds = new kakao.maps.LatLngBounds();
+
+    // 경로의 모든 좌표를 bounds에 추가
+    route.sections.forEach(section => {
+      section.roads.forEach(road => {
+        // vertexes 배열: [lng1, lat1, lng2, lat2, ...]
+        for (let i = 0; i < road.vertexes.length; i += 2) {
+          const lng = road.vertexes[i];
+          const lat = road.vertexes[i + 1];
+          bounds.extend(new kakao.maps.LatLng(lat, lng));
+        }
+      });
+    });
+
+    // 모바일과 데스크톱에 따라 다른 패딩 적용 (출발지/도착지가 완전히 보이도록)
+    const paddingTop = isMobile ? 120 : 150;
+    const paddingRight = isMobile ? 80 : 200;
+    const paddingBottom = isMobile ? 300 : 150;  // 모바일은 하단 패널 공간 확보
+    const paddingLeft = isMobile ? 80 : 0;
+
+    mapInstanceRef.current.setBounds(bounds, paddingTop, paddingRight, paddingBottom, paddingLeft);
+    mapInstanceRef.current.setLevel(7);
+
+    console.log('✅ 지도 범위 조정 완료 (전체 경로 포함, 패딩 적용)');
+  };
+
+  // 주유소 클릭 핸들러
+  const handleStationClick = (station) => {
+    if (!station.lat || !station.lng) {
+      alert('이 주유소의 위치 정보가 없습니다.');
+      return;
+    }
+
+    if (!coordinates) {
+      alert('현재 위치를 확인 중입니다. 잠시 후 다시 시도해주세요.');
+      return;
+    }
+
+    console.log(`🏁 주유소 선택: ${station.name}`);
+
+    setSelectedStation(station);
+    setShowRoutePanel(true);
+
+    // 지도를 주유소 위치로 이동
+    if (mapInstanceRef.current && window.kakao) {
+      const stationPos = new window.kakao.maps.LatLng(station.lat, station.lng);
+      mapInstanceRef.current.panTo(stationPos);
+    }
+
+    // 경로 조회
+    fetchRoute(coordinates.lat, coordinates.lng, station.lat, station.lng);
+  };
+
+  // 경로 패널 닫기
+  const closeRoutePanel = () => {
+    setShowRoutePanel(false);
+    setSelectedStation(null);
+    setRouteData(null);
+    setRouteError(null);
+
+    // 경로 폴리라인 제거
+    if (routePolylineRef.current) {
+      routePolylineRef.current.setMap(null);
+      routePolylineRef.current = null;
+    }
+
+    // 출발지/도착지 마커 제거
+    if (originMarkerRef.current) {
+      originMarkerRef.current.setMap(null);
+      originMarkerRef.current = null;
+    }
+    if (destinationMarkerRef.current) {
+      destinationMarkerRef.current.setMap(null);
+      destinationMarkerRef.current = null;
+    }
+
+    // 지도를 현재 위치와 주유소들 기준으로 재조정
+    if (mapInstanceRef.current && window.kakao && coordinates) {
+      const kakao = window.kakao;
+      const bounds = new kakao.maps.LatLngBounds();
+
+      // 현재 위치 추가
+      bounds.extend(new kakao.maps.LatLng(coordinates.lat, coordinates.lng));
+
+      // 현재 표시된 주유소들 추가
+      stations.forEach(station => {
+        if (station.lat && station.lng) {
+          bounds.extend(new kakao.maps.LatLng(station.lat, station.lng));
+        }
+      });
+
+      mapInstanceRef.current.setBounds(bounds);
+
+      // 서비스 초기 로드 시와 동일한 레벨(6)로 설정
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setLevel(6);
+        }
+      }, 100);
+
+      console.log('🚪 경로 패널 닫힘 - 지도를 현재 위치 기준으로 재조정 (level 6)');
+    } else {
+      console.log('🚪 경로 패널 닫힘');
     }
   };
 
@@ -1160,7 +1504,7 @@ const GasStationDashboard = () => {
             </div>
           ) : sortedStations.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '2rem' }}>
-              <Info size={48} color="#d1d5db" style={{ margin: '0 auto 0.5rem' }} />
+              <Fuel size={48} color="#d1d5db" style={{ margin: '0 auto 0.5rem' }} />
               <p style={{ color: '#6b7280' }}>주유소가 없습니다</p>
             </div>
           ) : (
@@ -1175,8 +1519,10 @@ const GasStationDashboard = () => {
                     ...styles.stationCard,
                     border: index === 0 ? '2px solid #2563eb' : 'none',
                     padding: '0.875rem',
-                    marginBottom: '0.5rem'
+                    marginBottom: '0.5rem',
+                    cursor: 'pointer'
                   }}
+                  onClick={() => handleStationClick(station)}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                     <div style={{ flex: 1 }}>
@@ -1222,13 +1568,136 @@ const GasStationDashboard = () => {
           )}
         </div>
       </div>
+
+      {/* Route Panel */}
+      {showRoutePanel && (
+        <>
+          <div style={styles.bottomSheetOverlay} onClick={closeRoutePanel} />
+          <div style={styles.routePanelMobile}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: '#111827', margin: 0 }}>
+                🚗 {selectedStation?.name}까지
+              </h3>
+              <button
+                onClick={closeRoutePanel}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '1.5rem',
+                  cursor: 'pointer',
+                  color: '#6b7280',
+                  padding: '0.25rem'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Loading State */}
+            {routeLoading && (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>
+                <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+                  경로 조회 중...
+                </div>
+              </div>
+            )}
+
+            {/* Error State */}
+            {routeError && (
+              <div style={{
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '0.5rem',
+                padding: '1rem',
+                color: '#991b1b',
+                fontSize: '0.875rem'
+              }}>
+                {routeError}
+              </div>
+            )}
+
+            {/* Route Data */}
+            {!routeLoading && !routeError && routeData && (
+              <>
+                {/* Route Summary */}
+                <div style={{
+                  background: '#f9fafb',
+                  borderRadius: '0.75rem',
+                  padding: '1rem',
+                  marginBottom: '1rem',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: '0.75rem'
+                }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>거리</div>
+                    <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#111827' }}>
+                      {(routeData.summary.distance / 1000).toFixed(1)}km
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>시간</div>
+                    <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#111827' }}>
+                      {Math.round(routeData.summary.duration / 60)}분
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>통행료</div>
+                    <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#111827' }}>
+                      {routeData.summary.fare?.toll || 0}원
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step-by-step Directions */}
+                <div>
+                  <h4 style={{ fontSize: '0.938rem', fontWeight: 'bold', color: '#111827', marginBottom: '0.75rem' }}>
+                    상세 경로
+                  </h4>
+                  <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                    {routeData.sections.map((section, sectionIdx) =>
+                      section.guides.map((guide, guideIdx) => (
+                        <div
+                          key={`${sectionIdx}-${guideIdx}`}
+                          style={{
+                            display: 'flex',
+                            gap: '0.75rem',
+                            padding: '0.75rem',
+                            borderBottom: '1px solid #e5e7eb',
+                            fontSize: '0.813rem'
+                          }}
+                        >
+                          <div style={{ fontSize: '1.125rem', flexShrink: 0 }}>
+                            {getDirectionIcon(guide.type)}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: '600', color: '#111827', marginBottom: '0.25rem' }}>
+                              {guide.guidance}
+                            </div>
+                            {guide.distance > 0 && (
+                              <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                                {guide.distance}m {guide.duration > 0 && `(${Math.round(guide.duration / 60)}분)`}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
     </>
     );
   }
 
   // 데스크톱 레이아웃
   return (
-    <>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', position: 'relative' }}>
       {/* 사이드바 토글 버튼 */}
       <button
         style={{
@@ -1308,7 +1777,10 @@ const GasStationDashboard = () => {
               </div>
             </div>
 
-            <div style={{...styles.summaryCard, ...styles.summaryCardBlue}}>
+            <div
+              style={{...styles.summaryCard, ...styles.summaryCardBlue, cursor: 'pointer'}}
+              onClick={() => lowestPriceStation && handleStationClick(lowestPriceStation)}
+            >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                 <span style={{ fontSize: '0.875rem', opacity: 0.9 }}>최저 가격</span>
                 <Fuel size={20} style={{ opacity: 0.9 }} />
@@ -1321,7 +1793,10 @@ const GasStationDashboard = () => {
               </div>
             </div>
 
-            <div style={{...styles.summaryCard, ...styles.summaryCardPurple}}>
+            <div
+              style={{...styles.summaryCard, ...styles.summaryCardPurple, cursor: 'pointer'}}
+              onClick={() => closestStation && handleStationClick(closestStation)}
+            >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                 <span style={{ fontSize: '0.875rem', opacity: 0.9 }}>최단 거리</span>
                 <MapPin size={20} style={{ opacity: 0.9 }} />
@@ -1334,7 +1809,10 @@ const GasStationDashboard = () => {
               </div>
             </div>
 
-            <div style={{...styles.summaryCard, ...styles.summaryCardGreen}}>
+            <div
+              style={{...styles.summaryCard, ...styles.summaryCardGreen, cursor: 'pointer'}}
+              onClick={() => bestEfficiencyStation && handleStationClick(bestEfficiencyStation)}
+            >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                 <span style={{ fontSize: '0.875rem', opacity: 0.9 }}>가성비 (40L 주유 시)</span>
                 <Navigation size={20} style={{ opacity: 0.9 }} />
@@ -1372,8 +1850,10 @@ const GasStationDashboard = () => {
               onClick={() => setSortMode('efficiency')}
               style={{
                 ...styles.tab,
-                ...(sortMode === 'efficiency' ? styles.tabActive : styles.tabInactive)
+                ...(sortMode === 'efficiency' ? styles.tabActive : styles.tabInactive),
+                position: 'relative'
               }}
+              title="가성비 계산 로직: (평균가-해당가) × 주유량 - (거리×2÷연비×평균가)"
             >
               ⚡ 가성비 순
             </button>
@@ -1403,7 +1883,7 @@ const GasStationDashboard = () => {
             </div>
           ) : sortedStations.length === 0 ? (
             <div style={{ ...styles.card, textAlign: 'center', padding: '3rem' }}>
-              <Info size={64} color="#d1d5db" style={{ margin: '0 auto 1rem' }} />
+              <Fuel size={64} color="#d1d5db" style={{ margin: '0 auto 1rem' }} />
               <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#111827', marginBottom: '0.5rem' }}>
                 주변에 주유소가 없습니다
               </h3>
@@ -1428,10 +1908,12 @@ const GasStationDashboard = () => {
                   style={{
                     ...styles.stationCard,
                     ...(hoveredCard === station.id ? styles.stationCardHover : {}),
-                    border: index === 0 ? '2px solid #2563eb' : 'none',
+                    //border: index === 0 ? '2px solid #2563eb' : 'none',
+                    cursor: 'pointer'
                   }}
                   onMouseEnter={() => setHoveredCard(station.id)}
                   onMouseLeave={() => setHoveredCard(null)}
+                  onClick={() => handleStationClick(station)}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
                     <div style={{ flex: 1 }}>
@@ -1517,38 +1999,154 @@ const GasStationDashboard = () => {
         </div>
       </div>
 
-      {/* 메인 콘텐츠 (우측) */}
+      {/* 경로 패널 (중간 컬럼) */}
+      {showRoutePanel && (
+        <div style={styles.routePanel}>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#111827', margin: 0 }}>
+              🚗 {selectedStation?.name}까지
+            </h3>
+            <button
+              onClick={closeRoutePanel}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '1.5rem',
+                cursor: 'pointer',
+                color: '#6b7280',
+                padding: '0.25rem'
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Loading State */}
+          {routeLoading && (
+            <div style={{ textAlign: 'center', padding: '3rem' }}>
+              <div style={{ fontSize: '1rem', color: '#6b7280' }}>
+                경로 조회 중...
+              </div>
+            </div>
+          )}
+
+          {/* Error State */}
+          {routeError && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '0.5rem',
+              padding: '1rem',
+              color: '#991b1b'
+            }}>
+              {routeError}
+            </div>
+          )}
+
+          {/* Route Data */}
+          {!routeLoading && !routeError && routeData && (
+            <>
+              {/* Route Summary */}
+              <div style={{
+                background: '#f9fafb',
+                borderRadius: '0.75rem',
+                padding: '1.25rem',
+                marginBottom: '1.5rem',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '1rem'
+              }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>거리</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#111827' }}>
+                    {(routeData.summary.distance / 1000).toFixed(1)}km
+                  </div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>소요시간</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#111827' }}>
+                    {Math.round(routeData.summary.duration / 60)}분
+                  </div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>통행료</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#111827' }}>
+                    {routeData.summary.fare?.toll || 0}원
+                  </div>
+                </div>
+              </div>
+
+              {/* Step-by-step Directions */}
+              <div>
+                <h4 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: '#111827', marginBottom: '1rem' }}>
+                  상세 경로 안내
+                </h4>
+                <div style={{ maxHeight: 'calc(100vh - 350px)', overflowY: 'auto' }}>
+                  {routeData.sections.map((section, sectionIdx) =>
+                    section.guides.map((guide, guideIdx) => (
+                      <div
+                        key={`${sectionIdx}-${guideIdx}`}
+                        style={{
+                          display: 'flex',
+                          gap: '1rem',
+                          padding: '1rem',
+                          borderBottom: '1px solid #e5e7eb',
+                          fontSize: '0.938rem'
+                        }}
+                      >
+                        <div style={{ fontSize: '1.5rem', flexShrink: 0 }}>
+                          {getDirectionIcon(guide.type)}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: '600', color: '#111827', marginBottom: '0.5rem' }}>
+                            {guide.guidance}
+                          </div>
+                          {guide.distance > 0 && (
+                            <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+                              {guide.distance}m {guide.duration > 0 && `(${Math.round(guide.duration / 60)}분)`}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 메인 콘텐츠 (우측 - 지도) */}
       <div style={{
-        ...styles.container,
-        ...(sidebarCollapsed ? styles.mainContentWithSidebarCollapsed : styles.mainContentWithSidebar)
+        flex: 1,
+        minWidth: 0,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column'
       }}>
-        <div style={styles.maxWidth}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '2rem' }}>
           {/* 지도 영역 */}
-          <div style={styles.card}>
+          <div style={{ ...styles.card, flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
               <MapPin size={20} color="#2563eb" />
               <h2 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: '#111827', margin: 0 }}>
                 주변 지도
               </h2>
             </div>
-            <div ref={mapRef} style={styles.mapContainer}></div>
+            <div ref={mapRef} style={{ flex: 1, borderRadius: '0.75rem', overflow: 'hidden', minHeight: '400px' }}></div>
             <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.5rem', textAlign: 'center' }}>
-              🔴 현재 검색 위치 | 🔵 파란 마커: 주유소 ({stations.filter(s => s.lat && s.lng).length}개) | 검색 반경 {radius.toFixed(1)}km
+              {showRoutePanel && selectedStation ? (
+                <>🔴 출발지: {address} | ⭐ 도착지: {selectedStation.name}</>
+              ) : (
+                <>🔴 현재 검색 위치 | 🔵 파란 마커: 주유소 ({stations.filter(s => s.lat && s.lng).length}개) | 검색 반경 {radius.toFixed(1)}km</>
+              )}
             </div>
-          </div>
-
-          {/* Footer */}
-          <div style={{ ...styles.card, textAlign: 'center', fontSize: '0.875rem', color: '#6b7280' }}>
-            <p style={{ marginBottom: '0.5rem' }}>
-              💡 <strong>가성비 계산 로직:</strong> (평균가-해당가) × 주유량 - (거리×2÷연비×평균가)
-            </p>
-            <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: 0 }}>
-              데이터 출처: 오피넷(Opinet) API | 연비 기준: 12km/L (왕복 계산)
-            </p>
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 
