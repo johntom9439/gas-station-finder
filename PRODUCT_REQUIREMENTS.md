@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 # 스마트 주유소 찾기
 
-**버전:** 1.0
-**최종 업데이트:** 2026-01-01
+**버전:** 1.1
+**최종 업데이트:** 2026-01-05
 **Repository:** https://github.com/johntom9439/gas-station-finder
 
 ---
@@ -32,7 +32,9 @@
 - 🎯 **실시간 가격 정보**: 오피넷 API 기반 실시간 휘발유 가격
 - 💰 **가성비 계산**: 이동 비용을 차감한 실제 절감액 분석
 - 🗺️ **시각적 표시**: 카카오맵 기반 주유소 위치 표시
-- 📍 **정확한 좌표 변환**: KATEC ↔ WGS84 좌표계 변환으로 정확한 위치 제공
+- 🚗 **경로 안내**: 주유소까지 실시간 경로 및 턴바이턴 네비게이션
+- 📱 **반응형 디자인**: 데스크톱/모바일 최적화 UI
+- 📍 **정확한 좌표 변환**: TM_OPINET ↔ WGS84 좌표계 변환으로 정확한 위치 제공
 
 ---
 
@@ -141,13 +143,56 @@
 - 드래그/줌 컨트롤
 
 **주유소 마커**
-- KATEC → WGS84 좌표 역변환으로 정확한 위치 표시
+- TM_OPINET → WGS84 좌표 역변환으로 정확한 위치 표시
 - 마커 클릭 시 인포윈도우 표시
   - 주유소 이름
   - 브랜드 | 가격
   - 거리
   - 🏆 트로피 배지 (최저가/최단거리/가성비 최우수)
 - X 버튼으로 인포윈도우 닫기
+
+### 7. 경로 안내 (Route Navigation)
+
+**기능 설명**
+- 주유소 카드 클릭 시 현재 위치에서 주유소까지 실시간 경로 표시
+- Kakao Mobility Directions API 기반 자동차 경로
+- 지도 위에 파란색 폴리라인으로 경로 시각화
+
+**경로 정보**
+- 🚗 총 거리 (km)
+- ⏱️ 예상 소요 시간 (분)
+- 💰 통행료
+- 🧭 턴바이턴 안내 (Turn-by-Turn Directions)
+  - 좌회전/우회전/직진/U턴 등 방향 아이콘
+  - 각 구간 거리 및 도로명
+  - 단계별 안내 메시지
+
+**UI/UX**
+- **데스크톱**: 중앙 패널에 경로 정보 표시
+- **모바일**: 하단 시트로 경로 정보 표시
+- 경로 표시 시 출발지(빨간 마커), 도착지(별 마커) 자동 추가
+- 지도 자동 줌/패닝으로 전체 경로 표시
+- 닫기 버튼으로 경로 해제 및 원래 뷰로 복귀
+
+### 8. 반응형 디자인
+
+**데스크톱 (≥ 768px)**
+- 좌측 사이드바 (450px) + 우측 지도
+- 사이드바 토글 버튼으로 접기/펼치기
+  - 접기: 지도 전체 화면 활용
+  - 펼치기: 사이드바 복원
+- 사이드바 접을 때 지도 자동 relayout (크기 재조정)
+- 지도 중심점 유지하며 부드러운 전환 애니메이션
+
+**모바일 (< 768px)**
+- 상단: 주소 검색 + 반경 슬라이더
+- 중앙: 전체 화면 지도
+- 하단: 주유소 요약 카드 (Top 3)
+  - 💰 최저가
+  - 📍 최단거리
+  - ⚡ 가성비
+- "전체 보기" 버튼 → 하단 시트 열림
+- 하단 시트: 전체 주유소 목록 스크롤
 
 ---
 
@@ -185,6 +230,8 @@
 | Opinet API | 주유소 가격/위치 정보 | API Key |
 | Kakao Maps SDK | 지도 표시 | App Key |
 | Kakao Geocoder | 주소 → 좌표 변환 | App Key |
+| Kakao Mobility Directions | 경로 안내 및 턴바이턴 | REST API Key |
+| Kakao Reverse Geocoding | 좌표 → 주소 변환 | REST API Key |
 | Daum Postcode | 주소 검색 UI | 공개 API |
 
 ---
@@ -244,10 +291,10 @@
 
 ## 핵심 기술 구현
 
-### 1. 좌표계 변환 (KATEC ↔ WGS84)
+### 1. 좌표계 변환 (TM_OPINET ↔ WGS84)
 
 **문제**
-- 오피넷 API는 KATEC(Korea TM) 좌표계 사용
+- 오피넷 API는 TM_OPINET(Korea Transverse Mercator) 좌표계 사용
 - 카카오맵은 WGS84(GPS) 좌표계 사용
 - 두 좌표계 간 정확한 변환 필요
 
@@ -259,10 +306,10 @@ proj4.defs([
   ['TM_OPINET', '+proj=tmerc +lat_0=38 +lon_0=128 +k=0.9999 +x_0=400000 +y_0=600000 +ellps=bessel +units=m +towgs84=-115.80,474.99,674.11,1.16,-2.31,-1.63,6.43 +no_defs']
 ]);
 
-// WGS84 → KATEC
+// WGS84 → TM_OPINET
 const [x, y] = proj4('EPSG:4326', 'TM_OPINET', [lng, lat]);
 
-// KATEC → WGS84
+// TM_OPINET → WGS84
 const [lng, lat] = proj4('TM_OPINET', 'EPSG:4326', [x, y]);
 ```
 
@@ -464,15 +511,15 @@ app.use(cors({
 
 ### A. API 명세
 
-**Backend Endpoint**
+**Backend Endpoints**
+
+**1. GET /api/stations**
 
 ```
-GET /api/stations
-
 Query Parameters:
   - lat: number (WGS84 latitude)
   - lng: number (WGS84 longitude)
-  - radius: number (km, max 10)
+  - radius: number (km, max 5)
 
 Response:
 {
@@ -488,11 +535,57 @@ Response:
         "PRICE_DT": "string",
         "GIS_X_COOR": "number",
         "GIS_Y_COOR": "number",
-        "WGS84_LAT": "number",  // 역변환된 좌표
-        "WGS84_LNG": "number"   // 역변환된 좌표
+        "WGS84_LAT": "number",  // TM_OPINET → WGS84 역변환
+        "WGS84_LNG": "number"   // TM_OPINET → WGS84 역변환
       }
     ]
   }
+}
+```
+
+**2. GET /api/route**
+
+```
+Query Parameters:
+  - origin: string (lng,lat 형식, 예: "126.9778,37.5664")
+  - destination: string (lng,lat 형식, 예: "127.0276,37.4979")
+
+Response:
+{
+  "routes": [
+    {
+      "summary": {
+        "distance": number,      // 총 거리 (미터)
+        "duration": number,      // 예상 소요 시간 (초)
+        "fare": {
+          "taxi": number,
+          "toll": number         // 통행료 (원)
+        }
+      },
+      "sections": [
+        {
+          "distance": number,
+          "duration": number,
+          "roads": [
+            {
+              "name": "string",  // 도로명
+              "distance": number,
+              "vertexes": [...]  // 폴리라인 좌표 배열 [lng, lat, ...]
+            }
+          ],
+          "guides": [
+            {
+              "name": "string",        // 안내 메시지
+              "distance": number,      // 구간 거리 (미터)
+              "duration": number,      // 구간 시간 (초)
+              "type": number,          // 방향 타입 (1:좌회전, 2:우회전, etc.)
+              "guidance": "string"     // 상세 안내
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -509,9 +602,7 @@ Response:
 | 버전 | 날짜 | 변경 내용 | 작성자 |
 |------|------|----------|--------|
 | 1.0 | 2026-01-01 | 초안 작성 | johntom9439 |
-
-
-## 테스트 업데이트 - Fri Jan  2 15:38:31 KST 2026
+| 1.1 | 2026-01-05 | 경로 안내 기능 추가, 반응형 디자인 개선, Kakao Mobility API 연동 | johntom9439 |
  
  
  
