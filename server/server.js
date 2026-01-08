@@ -77,7 +77,7 @@ async function reverseGeocode(lat, lng) {
 }
 
 // 오피넷 API 호출
-async function tryOpinet(lat, lng, radius, apiKey) {
+async function tryOpinet(lat, lng, radius, apiKey, prodcd = 'B027') {
   const coords = convertCoordinates(lat, lng);
   const radiusInMeters = Math.round(radius * 1000);
   
@@ -96,7 +96,7 @@ async function tryOpinet(lat, lng, radius, apiKey) {
       continue;
     }
     
-    const url = `https://www.opinet.co.kr/api/aroundAll.do?code=${apiKey}&x=${coord.x}&y=${coord.y}&radius=${radiusInMeters}&sort=1&prodcd=B027&out=json`;
+    const url = `https://www.opinet.co.kr/api/aroundAll.do?code=${apiKey}&x=${coord.x}&y=${coord.y}&radius=${radiusInMeters}&sort=1&prodcd=${prodcd}&out=json`;
     
     console.log(`\n🔗 API 호출:`);
     console.log(`   x=${coord.x}, y=${coord.y}, radius=${radiusInMeters}m`);
@@ -202,11 +202,11 @@ async function tryOpinet(lat, lng, radius, apiKey) {
 
 app.get('/api/stations', async (req, res) => {
   try {
-    const { lat, lng, radius } = req.query;
+    const { lat, lng, radius, prodcd = 'B027' } = req.query;
     const OPINET_API_KEY = process.env.OPINET_API_KEY;
 
     console.log('\n========================================');
-    console.log('📍 새 요청:', { lat, lng, radius: `${radius}km` });
+    console.log('📍 새 요청:', { lat, lng, radius: `${radius}km`, prodcd });
 
     if (!lat || !lng || !radius) {
       return res.status(400).json({ error: '필수 파라미터 누락' });
@@ -214,7 +214,7 @@ app.get('/api/stations', async (req, res) => {
 
     // 오피넷 API 시도
     if (OPINET_API_KEY) {
-      const result = await tryOpinet(parseFloat(lat), parseFloat(lng), parseFloat(radius), OPINET_API_KEY);
+      const result = await tryOpinet(parseFloat(lat), parseFloat(lng), parseFloat(radius), OPINET_API_KEY, prodcd);
       
       if (result.success) {
         if (!result.needAdjust || result.needAdjust === 'unknown') {

@@ -30,18 +30,18 @@ const addressToCoordinates = (address) => {
 };
 
 // 백엔드 API 호출 (KATEC 좌표 포함)
-const fetchNearbyStations = async (lat, lng, radius) => {
+const fetchNearbyStations = async (lat, lng, radius, prodcd = 'B027') => {
   try {
-    console.log('📡 백엔드 API 호출:', { lat, lng, radius });
-    
+    console.log('📡 백엔드 API 호출:', { lat, lng, radius, prodcd });
+
     // 카카오 좌표 변환 (WGS84 → KATEC)
     let katecX = lng;
     let katecY = lat;
-    
-    
-    
+
+
+
     // 백엔드 프록시 서버로 요청 (WGS84 좌표 그대로 전송, 백엔드에서 변환)
-    const url = `${BACKEND_API_URL}/api/stations?lat=${lat}&lng=${lng}&radius=${radius}`;
+    const url = `${BACKEND_API_URL}/api/stations?lat=${lat}&lng=${lng}&radius=${radius}&prodcd=${prodcd}`;
     
     const response = await fetch(url);
     
@@ -598,6 +598,9 @@ const GasStationDashboard = () => {
   const dragStartY = React.useRef(0);
   const dragStartHeight = React.useRef(0);
 
+  // 유종 선택
+  const [fuelType, setFuelType] = useState('B027'); // B027: 휘발유, D047: 경유
+
   // 반응형 처리
   useEffect(() => {
     const handleResize = () => {
@@ -1019,8 +1022,8 @@ const GasStationDashboard = () => {
     }
     setLoading(true);
     try {
-      console.log(`📡 주유소 검색 중: lat=${lat}, lng=${lng}, radius=5km`);
-      const data = await fetchNearbyStations(lat, lng, 5); // 오피넷 API 최대 5km
+      console.log(`📡 주유소 검색 중: lat=${lat}, lng=${lng}, radius=5km, prodcd=${fuelType}`);
+      const data = await fetchNearbyStations(lat, lng, 5, fuelType); // 오피넷 API 최대 5km
       setAllStations(data); // 5km 데이터를 allStations에 캐싱
       const filtered = data.filter(station => station.distance <= radius);
       setStations(filtered);
@@ -1237,33 +1240,55 @@ const GasStationDashboard = () => {
       destinationMarkerRef.current = null;
     }
 
-    // 모바일/데스크톱: 지도를 현재 위치와 주유소들 기준으로 재조정
+    // 지도 relayout 및 재조정
     if (mapInstanceRef.current && window.kakao && coordinates) {
-      const kakao = window.kakao;
-      const bounds = new kakao.maps.LatLngBounds();
-
-      // 현재 위치 추가
-      bounds.extend(new kakao.maps.LatLng(coordinates.lat, coordinates.lng));
-
-      // 현재 표시된 주유소들 추가
-      stations.forEach(station => {
-        if (station.lat && station.lng) {
-          bounds.extend(new kakao.maps.LatLng(station.lat, station.lng));
-        }
-      });
-
-      mapInstanceRef.current.setBounds(bounds);
-
-      // 서비스 초기 로드 시와 동일한 레벨(6)로 설정
+      // 지도 크기 재계산 (경로 패널이 닫히면서 지도 영역 변경됨)
       setTimeout(() => {
         if (mapInstanceRef.current) {
-          mapInstanceRef.current.setLevel(6);
+          mapInstanceRef.current.relayout();
+
+          // 현재 위치를 중심으로 설정
+          const position = new window.kakao.maps.LatLng(coordinates.lat, coordinates.lng);
+          mapInstanceRef.current.setCenter(position);
+
+          // 적절한 줌 레벨 설정 (반경에 따라)
+          const level = radius <= 1 ? 5 : radius <= 3 ? 6 : 7;
+          mapInstanceRef.current.setLevel(level);
+
+          console.log(`🚪 경로 패널 닫힘 - 지도 재조정 (level ${level})`);
         }
       }, 100);
-
-      console.log('🚪 경로 패널 닫힘 - 지도를 현재 위치 기준으로 재조정 (level 6)');
     } else {
       console.log('🚪 경로 패널 닫힘');
+    }
+  };
+
+  // 유종 변경 핸들러
+  const handleFuelTypeChange = async (newFuelType) => {
+    setFuelType(newFuelType);
+
+    // 현재 좌표가 있으면 데이터 리로드
+    if (coordinates) {
+      setLoading(true);
+      try {
+        console.log(`🔄 유종 변경: ${newFuelType === 'B027' ? '휘발유' : '경유'}`);
+        const newStations = await fetchNearbyStations(
+          coordinates.lat,
+          coordinates.lng,
+          5,
+          newFuelType
+        );
+
+        setAllStations(newStations);
+
+        // 현재 반경에 맞는 주유소만 필터링
+        const filtered = newStations.filter(s => s.distance <= radius * 1000);
+        setStations(filtered);
+      } catch (error) {
+        console.error('유종 변경 중 오류:', error);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -1341,7 +1366,7 @@ const GasStationDashboard = () => {
 
           // 새 좌표로 주유소 데이터 로드 (5km 기준)
           setLoading(true);
-          const newStations = await fetchNearbyStations(coords.lat, coords.lng, 5);
+          const newStations = await fetchNearbyStations(coords.lat, coords.lng, 5, fuelType);
           setAllStations(newStations);
           const filtered = newStations.filter(station => station.distance <= 5);
           setStations(filtered);
@@ -1357,7 +1382,7 @@ const GasStationDashboard = () => {
           setRadius(5); // 반경 5km로 재설정
           // 기본 좌표로 주유소 데이터 로드 (5km 기준)
           setLoading(true);
-          const newStations = await fetchNearbyStations(coordinates.lat, coordinates.lng, 5);
+          const newStations = await fetchNearbyStations(coordinates.lat, coordinates.lng, 5, fuelType);
           setAllStations(newStations);
           const filtered = newStations.filter(station => station.distance <= 5);
           setStations(filtered);
@@ -1376,7 +1401,7 @@ const GasStationDashboard = () => {
 
           // 새 좌표로 주유소 데이터 로드 (5km 기준)
           setLoading(true);
-          const newStations = await fetchNearbyStations(coords.lat, coords.lng, 5);
+          const newStations = await fetchNearbyStations(coords.lat, coords.lng, 5, fuelType);
           setAllStations(newStations);
           const filtered = newStations.filter(station => station.distance <= 5);
           setStations(filtered);
@@ -1506,6 +1531,57 @@ const GasStationDashboard = () => {
                 >
                   <Search size={16} />
                 </button>
+              </div>
+
+              {/* 유종 선택 */}
+              <div style={{ marginBottom: '0.75rem' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem', display: 'block' }}>
+                  유종 선택
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <label style={{
+                    flex: 1,
+                    padding: '0.5rem',
+                    border: fuelType === 'B027' ? '2px solid #2563eb' : '1px solid #d1d5db',
+                    borderRadius: '0.5rem',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    backgroundColor: fuelType === 'B027' ? '#eff6ff' : 'white',
+                    fontSize: '0.875rem',
+                    fontWeight: fuelType === 'B027' ? '600' : '400',
+                  }}>
+                    <input
+                      type="radio"
+                      name="fuelTypeMobile"
+                      value="B027"
+                      checked={fuelType === 'B027'}
+                      onChange={(e) => handleFuelTypeChange(e.target.value)}
+                      style={{ display: 'none' }}
+                    />
+                    휘발유
+                  </label>
+                  <label style={{
+                    flex: 1,
+                    padding: '0.5rem',
+                    border: fuelType === 'D047' ? '2px solid #2563eb' : '1px solid #d1d5db',
+                    borderRadius: '0.5rem',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    backgroundColor: fuelType === 'D047' ? '#eff6ff' : 'white',
+                    fontSize: '0.875rem',
+                    fontWeight: fuelType === 'D047' ? '600' : '400',
+                  }}>
+                    <input
+                      type="radio"
+                      name="fuelTypeMobile"
+                      value="D047"
+                      checked={fuelType === 'D047'}
+                      onChange={(e) => handleFuelTypeChange(e.target.value)}
+                      style={{ display: 'none' }}
+                    />
+                    경유
+                  </label>
+                </div>
               </div>
 
               {/* 검색 반경 슬라이더 */}
@@ -1801,6 +1877,57 @@ const GasStationDashboard = () => {
               >
                 <Search size={20} />
               </button>
+            </div>
+          </div>
+
+          {/* 유종 선택 */}
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>유종 선택</label>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <label style={{
+                flex: 1,
+                padding: '0.75rem',
+                border: fuelType === 'B027' ? '2px solid #2563eb' : '2px solid #e5e7eb',
+                borderRadius: '0.5rem',
+                cursor: 'pointer',
+                textAlign: 'center',
+                backgroundColor: fuelType === 'B027' ? '#eff6ff' : 'white',
+                fontSize: '1rem',
+                fontWeight: fuelType === 'B027' ? '600' : '400',
+                transition: 'all 0.2s',
+              }}>
+                <input
+                  type="radio"
+                  name="fuelTypeDesktop"
+                  value="B027"
+                  checked={fuelType === 'B027'}
+                  onChange={(e) => handleFuelTypeChange(e.target.value)}
+                  style={{ display: 'none' }}
+                />
+                휘발유
+              </label>
+              <label style={{
+                flex: 1,
+                padding: '0.75rem',
+                border: fuelType === 'D047' ? '2px solid #2563eb' : '2px solid #e5e7eb',
+                borderRadius: '0.5rem',
+                cursor: 'pointer',
+                textAlign: 'center',
+                backgroundColor: fuelType === 'D047' ? '#eff6ff' : 'white',
+                fontSize: '1rem',
+                fontWeight: fuelType === 'D047' ? '600' : '400',
+                transition: 'all 0.2s',
+              }}>
+                <input
+                  type="radio"
+                  name="fuelTypeDesktop"
+                  value="D047"
+                  checked={fuelType === 'D047'}
+                  onChange={(e) => handleFuelTypeChange(e.target.value)}
+                  style={{ display: 'none' }}
+                />
+                경유
+              </label>
             </div>
           </div>
 

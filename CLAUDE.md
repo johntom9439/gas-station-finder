@@ -68,6 +68,7 @@ The application uses a client-server architecture to handle API keys securely:
 - `coordinates`: Current search location (WGS84 lat/lng)
 - `radius`: Search radius in kilometers (0.5-5km range)
 - `sortMode`: Display sorting ('price', 'distance', or 'efficiency')
+- `fuelType`: Fuel type selection ('B027' for gasoline, 'D047' for diesel, default: 'B027')
 - `isMobile`: Responsive layout flag (window.innerWidth < 768)
 - `sidebarCollapsed`: Desktop sidebar visibility state
 - `bottomSheetOpen`: Mobile bottom sheet visibility state
@@ -78,17 +79,18 @@ The application uses a client-server architecture to handle API keys securely:
 - `routeError`: Route fetch error message
 
 **Core Functions**
-- `fetchNearbyStations(lat, lng, radius)`: Calls backend `/api/stations`, returns empty array on failure
+- `fetchNearbyStations(lat, lng, radius, prodcd)`: Calls backend `/api/stations` with fuel type, returns empty array on failure
 - `addressToCoordinates(address)`: Uses Kakao Geocoder to convert address to WGS84
 - `calculateSavings(stationPrice, avgPrice, distance)`: Computes net savings accounting for travel cost (assumes 12km/L fuel efficiency, 40L refuel, round-trip)
 - `calculateTravelCost(distance, fuelPrice)`: Calculates round-trip travel cost
 - `openAddressSearch()`: Opens Daum Postcode UI for address selection
 - `loadStations(lat, lng)`: Fetches stations and updates map (always fetches 5km data)
+- `handleFuelTypeChange(newFuelType)`: Changes fuel type and reloads station data
 - `fetchRoute(originLat, originLng, destLat, destLng)`: Calls backend `/api/route` for route data
 - `drawRouteOnMap(route)`: Draws blue polyline on Kakao map from route data
 - `fitMapToRoute(originLat, originLng, destLat, destLng)`: Adjusts map bounds to show entire route
 - `handleStationClick(station)`: Handles station selection and initiates route fetch
-- `closeRoutePanel()`: Closes route panel and removes polyline from map
+- `closeRoutePanel()`: Closes route panel, removes polyline, and refits map to current location
 - `getDirectionIcon(type)`: Maps Kakao guide types to emoji icons (⬅️, ➡️, ⬆️, etc.)
 
 **Map Integration (Kakao Maps)**
@@ -106,6 +108,7 @@ The application uses a client-server architecture to handle API keys securely:
 ### 1. Gas Station Search
 - Search by address or current GPS location
 - Adjustable search radius (0.5km - 5km)
+- **Fuel type selection**: Gasoline (휘발유, B027) or Diesel (경유, D047)
 - Real-time fuel price data from Opinet API
 - Automatic reverse geocoding for stations without addresses
 
@@ -184,6 +187,9 @@ Query parameters:
 - `lat`: Latitude (WGS84)
 - `lng`: Longitude (WGS84)
 - `radius`: Search radius in km (max 5)
+- `prodcd`: Fuel type code (optional, default: 'B027')
+  - `B027`: Gasoline (휘발유)
+  - `D047`: Diesel (경유)
 
 Returns: Array of gas stations with WGS84 coordinates, prices, distances, addresses
 
