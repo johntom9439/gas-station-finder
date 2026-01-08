@@ -449,7 +449,7 @@ const styles = {
     boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.15)',
     transition: 'transform 0.3s ease',
     zIndex: 3000,
-    maxHeight: '80vh',
+    height: '50vh',
     overflowY: 'auto',
     padding: '1rem',
   },
@@ -478,28 +478,35 @@ const styles = {
     borderRadius: '1.5rem 1.5rem 0 0',
     boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.15)',
     zIndex: 2000,
-    height: '45vh',
     display: 'flex',
     flexDirection: 'column',
+    overscrollBehavior: 'contain', // 오버스크롤 방지
   },
   // 바텀 시트 드래그 핸들
   bottomSheetHandle: {
     display: 'flex',
     justifyContent: 'center',
-    padding: '0.75rem',
+    alignItems: 'center',
+    padding: '1rem 0',
     cursor: 'grab',
+    touchAction: 'none',
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
+    minHeight: '48px', // 터치하기 쉬운 최소 높이
   },
   bottomSheetHandleBar: {
-    width: '40px',
-    height: '4px',
+    width: '48px',
+    height: '5px',
     background: '#d1d5db',
-    borderRadius: '2px',
+    borderRadius: '4px',
   },
   // 바텀 시트 컨텐츠 (스크롤 가능)
   bottomSheetContent: {
     flex: 1,
     overflowY: 'auto',
     padding: '0 1rem 1rem 1rem',
+    overscrollBehavior: 'contain', // 오버스크롤 방지
+    WebkitOverflowScrolling: 'touch', // iOS 부드러운 스크롤
   },
   // 탭 바 (sticky)
   mobileTabBar: {
@@ -584,6 +591,12 @@ const GasStationDashboard = () => {
   const routePolylineRef = React.useRef(null); // 경로 폴리라인
   const originMarkerRef = React.useRef(null); // 출발지 마커
   const destinationMarkerRef = React.useRef(null); // 도착지 마커
+
+  // 바텀시트 드래그 관련 state
+  const [bottomSheetHeight, setBottomSheetHeight] = useState(45); // vh 단위 (45vh가 기본)
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartY = React.useRef(0);
+  const dragStartHeight = React.useRef(0);
 
   // 반응형 처리
   useEffect(() => {
@@ -743,17 +756,8 @@ const GasStationDashboard = () => {
           mapInstanceRef.current.relayout();
           mapInstanceRef.current.setCenter(newCenter);
 
-          // 모바일: 바텀 시트(45vh)를 고려해서 지도를 아래로 이동
-          // 바텀 시트의 절반만큼 아래로 panBy (가시 영역 중앙에 마커 배치)
-          if (isMobile) {
-            const screenHeight = window.innerHeight;
-            const bottomSheetHeight = screenHeight * 0.45; // 45vh
-            const offsetY = bottomSheetHeight / 2; // 절반만큼 아래로
-            mapInstanceRef.current.panBy(0, offsetY);
-            console.log(`📱 모바일 지도 중심 조정: ${Math.round(offsetY)}px 아래로 이동`);
-          } else {
-            console.log('✅ 지도 레이아웃 재조정 및 중심 설정 완료');
-          }
+          // 지도 중심 조정하지 않음 (자연스럽게 표시)
+          console.log('✅ 지도 레이아웃 재조정 및 중심 설정 완료');
         }
       }, 200);
     } else {
@@ -1052,8 +1056,12 @@ const GasStationDashboard = () => {
 
       if (data.routes && data.routes.length > 0) {
         setRouteData(data.routes[0]);
+
+        // 모바일/데스크톱 모두 지도에 경로 그리기 + 범위 조정
         drawRouteOnMap(data.routes[0]);
         fitMapToRoute(data.routes[0]);
+
+        console.log('✅ 지도에 경로 표시 + 출발지/도착지 포함하여 범위 조정');
       } else {
         throw new Error('경로를 찾을 수 없습니다');
       }
@@ -1160,13 +1168,21 @@ const GasStationDashboard = () => {
     });
 
     // 모바일과 데스크톱에 따라 다른 패딩 적용 (출발지/도착지가 완전히 보이도록)
-    const paddingTop = isMobile ? 120 : 150;
-    const paddingRight = isMobile ? 80 : 200;
-    const paddingBottom = isMobile ? 300 : 150;  // 모바일은 하단 패널 공간 확보
-    const paddingLeft = isMobile ? 80 : 0;
+    const paddingTop = isMobile ? 80 : 150;
+    const paddingRight = isMobile ? 50 : 200;
+    // 모바일: 경로 패널 높이(50vh)를 고려한 패딩, 데스크톱: 기본 패딩
+    const paddingBottom = isMobile ? window.innerHeight * 0.2 : 150;
+    const paddingLeft = isMobile ? 50 : 0;
 
     mapInstanceRef.current.setBounds(bounds, paddingTop, paddingRight, paddingBottom, paddingLeft);
-    mapInstanceRef.current.setLevel(7);
+    // setLevel 제거 - setBounds가 자동으로 최적 레벨 설정
+
+    // 지도 레이아웃 재조정 (모바일에서 중요)
+    setTimeout(() => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.relayout();
+      }
+    }, 100);
 
     console.log('✅ 지도 범위 조정 완료 (전체 경로 포함, 패딩 적용)');
   };
@@ -1188,13 +1204,13 @@ const GasStationDashboard = () => {
     setSelectedStation(station);
     setShowRoutePanel(true);
 
-    // 지도를 주유소 위치로 이동
-    if (mapInstanceRef.current && window.kakao) {
+    // 데스크톱: 지도를 주유소 위치로 이동
+    if (!isMobile && mapInstanceRef.current && window.kakao) {
       const stationPos = new window.kakao.maps.LatLng(station.lat, station.lng);
       mapInstanceRef.current.panTo(stationPos);
     }
 
-    // 경로 조회
+    // 경로 조회 (모바일/데스크톱 공통)
     fetchRoute(coordinates.lat, coordinates.lng, station.lat, station.lng);
   };
 
@@ -1221,7 +1237,7 @@ const GasStationDashboard = () => {
       destinationMarkerRef.current = null;
     }
 
-    // 지도를 현재 위치와 주유소들 기준으로 재조정
+    // 모바일/데스크톱: 지도를 현재 위치와 주유소들 기준으로 재조정
     if (mapInstanceRef.current && window.kakao && coordinates) {
       const kakao = window.kakao;
       const bounds = new kakao.maps.LatLngBounds();
@@ -1249,6 +1265,52 @@ const GasStationDashboard = () => {
     } else {
       console.log('🚪 경로 패널 닫힘');
     }
+  };
+
+  // 바텀시트 드래그 핸들러들
+  const handleTouchStart = (e) => {
+    e.preventDefault(); // 브라우저 기본 스크롤 방지
+    setIsDragging(true);
+    dragStartY.current = e.touches[0].clientY;
+    dragStartHeight.current = bottomSheetHeight;
+    console.log('🎯 드래그 시작:', dragStartY.current);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isDragging) return;
+
+    e.preventDefault(); // 브라우저 기본 스크롤 방지 (중요!)
+    e.stopPropagation(); // 이벤트 전파 중지
+
+    const currentY = e.touches[0].clientY;
+    const deltaY = dragStartY.current - currentY; // 위로 드래그하면 양수
+    const windowHeight = window.innerHeight;
+
+    // deltaY를 vh로 변환
+    const deltaVh = (deltaY / windowHeight) * 100;
+    let newHeight = dragStartHeight.current + deltaVh;
+
+    // 최소 40vh, 최대 90vh로 제한
+    newHeight = Math.max(40, Math.min(90, newHeight));
+
+    setBottomSheetHeight(newHeight);
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDragging) return;
+
+    setIsDragging(false);
+
+    // 스냅 포인트: 40vh (최소), 70vh (중간), 90vh (최대)
+    const snapPoints = [40, 70, 90];
+
+    // 현재 높이와 가장 가까운 스냅 포인트 찾기
+    const closest = snapPoints.reduce((prev, curr) => {
+      return Math.abs(curr - bottomSheetHeight) < Math.abs(prev - bottomSheetHeight) ? curr : prev;
+    });
+
+    console.log('🎯 드래그 종료: 스냅 포인트', closest, 'vh');
+    setBottomSheetHeight(closest);
   };
 
   const openAddressSearch = () => {
@@ -1333,8 +1395,17 @@ const GasStationDashboard = () => {
     : 0;
 
   const sortedStations = [...stations].sort((a, b) => {
-    if (sortMode === 'price') return a.price - b.price;
-    if (sortMode === 'distance') return a.distance - b.distance;
+    if (sortMode === 'price') {
+      // 최저가 탭: 가격 오름차순 → 같으면 거리 오름차순
+      if (a.price !== b.price) return a.price - b.price;
+      return a.distance - b.distance;
+    }
+
+    if (sortMode === 'distance') {
+      // 최단거리 탭: 거리 오름차순 → 같으면 가격 오름차순
+      if (a.distance !== b.distance) return a.distance - b.distance;
+      return a.price - b.price;
+    }
 
     const savingsA = calculateSavings(a.price, averagePrice, a.distance);
     const savingsB = calculateSavings(b.price, averagePrice, b.distance);
@@ -1376,23 +1447,43 @@ const GasStationDashboard = () => {
           </h1>
         </div>
 
-        {/* 지도 (전체 화면 배경) */}
+        {/* 지도 (바텀시트 위까지만 표시) */}
         <div style={{
           position: 'fixed',
           top: '60px',
           left: 0,
           right: 0,
-          bottom: 0,
-          zIndex: 0
+          bottom: showRoutePanel ? '50vh' : `${bottomSheetHeight}vh`,
+          zIndex: 0,
+          transition: 'bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         }}>
           <div ref={mapRef} style={{ width: '100%', height: '100%' }}></div>
         </div>
 
-        {/* 새로운 바텀 시트 (항상 표시) */}
-        <div style={styles.mobileBottomSheetNew}>
+        {/* 새로운 바텀 시트 (경로 패널이 열려있지 않을 때만 표시) */}
+        {!showRoutePanel && (
+          <div style={{
+            ...styles.mobileBottomSheetNew,
+            height: `${bottomSheetHeight}vh`,
+            transition: isDragging ? 'none' : 'height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          }}>
           {/* 드래그 핸들 */}
-          <div style={styles.bottomSheetHandle}>
-            <div style={styles.bottomSheetHandleBar}></div>
+          <div
+            style={{
+              ...styles.bottomSheetHandle,
+              cursor: isDragging ? 'grabbing' : 'grab',
+            }}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            <div style={{
+              ...styles.bottomSheetHandleBar,
+              background: isDragging ? '#9ca3af' : '#d1d5db',
+              width: isDragging ? '60px' : '48px',
+              height: isDragging ? '6px' : '5px',
+              transition: 'all 0.2s ease',
+            }}></div>
           </div>
 
           {/* 컨텐츠 */}
@@ -1537,11 +1628,10 @@ const GasStationDashboard = () => {
           )}
           </div>
         </div>
+        )}
 
       {/* Route Panel */}
       {showRoutePanel && (
-        <>
-          <div style={styles.bottomSheetOverlay} onClick={closeRoutePanel} />
           <div style={styles.routePanelMobile}>
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -1658,7 +1748,6 @@ const GasStationDashboard = () => {
               </>
             )}
           </div>
-        </>
       )}
     </>
     );
