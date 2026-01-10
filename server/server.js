@@ -4,12 +4,40 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 const proj4 = require('proj4');
+const Database = require('better-sqlite3');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001; // Render는 환경변수 PORT 사용
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST'], credentials: true }));
+
+// 주차장 DB 연결
+let parkingDB;
+const path = require('path');
+const dbPath = path.join(__dirname, 'parking.db');
+
+try {
+  parkingDB = new Database(dbPath, { readonly: true });
+  console.log('✅ 주차장 DB 연결 완료');
+
+  // 통계 출력
+  const stats = parkingDB.prepare('SELECT COUNT(*) as count FROM parking_lots WHERE latitude IS NOT NULL').get();
+  console.log(`📊 DB: ${stats.count}개 주차장 (좌표 있음)`);
+} catch (error) {
+  console.error('❌ 주차장 DB 연결 실패:', error.message);
+  console.error('⚠️  주차장 API를 사용하려면 먼저 DB를 초기화하세요:');
+  console.error('   node server/init-parking-db.js');
+}
+
+// 서버 종료 시 DB 연결 해제
+process.on('SIGINT', () => {
+  if (parkingDB) {
+    parkingDB.close();
+    console.log('✅ DB 연결 해제');
+  }
+  process.exit(0);
+});
 
 // 단일 좌표계 정의 - lon_0=127로 고정
 proj4.defs([
@@ -280,6 +308,147 @@ app.get('/api/route', async (req, res) => {
   } catch (error) {
     console.error('❌ 경로 API 오류:', error);
     res.status(500).json({ error: 'Failed to fetch route', details: error.message });
+  }
+});
+
+// 주소를 좌표로 변환 (카카오 Geocoding API)
+async function addressToCoordinates(address) {
+  try {
+    const url = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(address)}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `KakaoAK ${process.env.KAKAO_REST_API_KEY}`
+      }
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (data.documents && data.documents.length > 0) {
+      return {
+        lat: parseFloat(data.documents[0].y),
+        lng: parseFloat(data.documents[0].x)
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('❌ 주소 좌표 변환 실패:', address, error.message);
+    return null;
+  }
+}
+
+// 두 좌표 사이의 거리 계산 (Haversine formula, 미터 단위)
+function calculateDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371e3; // 지구 반지름 (미터)
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lng2 - lng1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // 미터 단위
+}
+
+// 주차장 API (DB 기반)
+app.get('/api/parking', async (req, res) => {
+  try {
+    const { lat, lng, radius } = req.query;
+
+    console.log('\n========================================');
+    console.log('🅿️  주차장 검색 (DB):', { lat, lng, radius: `${radius}km` });
+
+    if (!lat || !lng || !radius) {
+      return res.status(400).json({ error: '필수 파라미터 누락' });
+    }
+
+    if (!parkingDB) {
+      return res.status(500).json({
+        error: '주차장 DB가 초기화되지 않았습니다. node server/init-parking-db.js를 실행하세요.'
+      });
+    }
+
+    const userLat = parseFloat(lat);
+    const userLng = parseFloat(lng);
+    const searchRadius = parseFloat(radius) * 1000; // km → m
+
+    // DB에서 모든 주차장 조회 (좌표 있는 것만)
+    const startTime = Date.now();
+
+    const parkingLots = parkingDB.prepare(`
+      SELECT
+        pklt_cd,
+        pklt_nm,
+        addr,
+        latitude,
+        longitude,
+        tpkct,
+        prk_crg,
+        prk_hm,
+        add_crg,
+        add_unit_tm_mnt,
+        dly_max_crg,
+        oper_se_nm,
+        chgd_free_nm,
+        wd_oper_bgng_tm,
+        wd_oper_end_tm,
+        telno
+      FROM parking_lots
+      WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+    `).all();
+
+    // 거리 계산 및 필터링
+    const nearbyLots = parkingLots
+      .map(lot => {
+        const distance = calculateDistance(userLat, userLng, lot.latitude, lot.longitude);
+        return {
+          ...lot,
+          distance: Math.round(distance),
+          // 기존 API 호환성을 위한 대문자 필드 추가
+          PKLT_CD: lot.pklt_cd,
+          PKLT_NM: lot.pklt_nm,
+          ADDR: lot.addr,
+          LAT: lot.latitude,
+          LOT: lot.longitude,
+          TPKCT: lot.tpkct,
+          PRK_CRG: lot.prk_crg,
+          PRK_HM: lot.prk_hm,
+          ADD_CRG: lot.add_crg,
+          ADD_UNIT_TM_MNT: lot.add_unit_tm_mnt,
+          DLY_MAX_CRG: lot.dly_max_crg,
+          OPER_SE_NM: lot.oper_se_nm,
+          CHGD_FREE_NM: lot.chgd_free_nm,
+          WD_OPER_BGNG_TM: lot.wd_oper_bgng_tm,
+          WD_OPER_END_TM: lot.wd_oper_end_tm,
+          TELNO: lot.telno
+        };
+      })
+      .filter(lot => lot.distance <= searchRadius)
+      .sort((a, b) => a.distance - b.distance);
+
+    const endTime = Date.now();
+
+    console.log(`✅ DB 조회 완료: ${endTime - startTime}ms`);
+    console.log(`✅ 반경 ${radius}km 내 주차장: ${nearbyLots.length}개`);
+    console.log('========================================\n');
+
+    res.json({
+      parkingLots: nearbyLots,
+      total: nearbyLots.length,
+      searchRadius: searchRadius
+    });
+
+  } catch (error) {
+    console.error('❌ 주차장 API 오류:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

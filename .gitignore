@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+server/node_modules/
 /.pnp
 .pnp.js
 
@@ -20,6 +21,19 @@
 
 # backend environment variables
 server/.env
+
+# server files
+server/debug-test.js
+*.log
+/tmp/
+
+# IDE
+.vscode/
+.idea/
+
+# N8N (optional workflow automation)
+N8N_SETUP_GUIDE.md
+n8n-workflows/
 
 npm-debug.log*
 yarn-debug.log*
