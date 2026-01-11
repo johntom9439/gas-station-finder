@@ -441,7 +441,7 @@ const styles = {
   // 경로 패널 스타일 (모바일)
   routePanelMobile: {
     position: 'fixed',
-    bottom: 0,
+    bottom: '70px', // 하단 탭바 높이만큼 올림
     left: 0,
     right: 0,
     background: 'white',
@@ -459,9 +459,10 @@ const styles = {
     top: 0,
     left: 0,
     right: 0,
+    height: '56px',
     background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
     color: 'white',
-    padding: '1rem',
+    padding: '0 1rem',
     zIndex: 1000,
     boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)',
     display: 'flex',
@@ -471,7 +472,7 @@ const styles = {
   // 새로운 바텀 시트 (항상 표시)
   mobileBottomSheetNew: {
     position: 'fixed',
-    bottom: 0,
+    bottom: '70px', // 하단 탭바 높이만큼 올림
     left: 0,
     right: 0,
     background: 'white',
@@ -1315,8 +1316,8 @@ const GasStationDashboard = () => {
     const deltaVh = (deltaY / windowHeight) * 100;
     let newHeight = dragStartHeight.current + deltaVh;
 
-    // 최소 40vh, 최대 90vh로 제한
-    newHeight = Math.max(40, Math.min(90, newHeight));
+    // 최소 40vh, 최대 85vh로 제한 (헤더 위로 올라가지 않도록)
+    newHeight = Math.max(40, Math.min(85, newHeight));
 
     setBottomSheetHeight(newHeight);
   };
@@ -1326,8 +1327,8 @@ const GasStationDashboard = () => {
 
     setIsDragging(false);
 
-    // 스냅 포인트: 40vh (최소), 70vh (중간), 90vh (최대)
-    const snapPoints = [40, 70, 90];
+    // 스냅 포인트: 40vh (최소), 70vh (중간), 85vh (최대 - 헤더 아래까지)
+    const snapPoints = [40, 70, 85];
 
     // 현재 높이와 가장 가까운 스냅 포인트 찾기
     const closest = snapPoints.reduce((prev, curr) => {
@@ -1467,7 +1468,7 @@ const GasStationDashboard = () => {
         {/* 최상단 헤더 */}
         <div style={styles.mobileHeader}>
           <Fuel size={24} />
-          <h1 style={{ fontSize: '1.125rem', fontWeight: 'bold', margin: 0 }}>
+          <h1 style={{ fontSize: '1.125rem', fontWeight: 'bold', margin: 0, flex: 1 }}>
             스마트 주유소 찾기
           </h1>
         </div>
@@ -1475,10 +1476,10 @@ const GasStationDashboard = () => {
         {/* 지도 (바텀시트 위까지만 표시) */}
         <div style={{
           position: 'fixed',
-          top: '60px',
+          top: '56px',
           left: 0,
           right: 0,
-          bottom: showRoutePanel ? '50vh' : `${bottomSheetHeight}vh`,
+          bottom: showRoutePanel ? 'calc(50vh + 70px)' : `calc(${bottomSheetHeight}vh + 70px)`,
           zIndex: 0,
           transition: 'bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         }}>
@@ -1639,9 +1640,19 @@ const GasStationDashboard = () => {
               </div>
             </div>
           ) : sortedStations.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '2rem' }}>
+            <div style={{ textAlign: 'center', padding: '1.5rem', background: '#f9fafb', borderRadius: '0.75rem', margin: '0.5rem 0' }}>
               <Fuel size={48} color="#d1d5db" style={{ margin: '0 auto 0.5rem' }} />
-              <p style={{ color: '#6b7280' }}>주유소가 없습니다</p>
+              <p style={{ color: '#6b7280', marginBottom: '0.75rem' }}>
+                {radius.toFixed(1)}km 반경 내에 주유소가 없습니다
+              </p>
+              {radius < 5 && (
+                <button
+                  onClick={() => setRadius(Math.min(5, radius + 1))}
+                  style={{ ...styles.button, width: '100%', justifyContent: 'center' }}
+                >
+                  검색 반경 넓히기 (+1km)
+                </button>
+              )}
             </div>
           ) : (
             sortedStations.map((station, index) => {
@@ -1853,7 +1864,7 @@ const GasStationDashboard = () => {
             <div style={styles.iconBox}>
               <Fuel size={32} color="white" />
             </div>
-            <div>
+            <div style={{ flex: 1 }}>
               <h1 style={styles.title}>스마트 주유소 찾기</h1>
               <p style={styles.subtitle}>최저가/최단거리/가성비 기준 추천</p>
             </div>
@@ -2077,7 +2088,7 @@ const GasStationDashboard = () => {
               </p>
               <button
                 onClick={() => setRadius(Math.min(5, radius + 1))}
-                style={styles.button}
+                style={{ ...styles.button, display: 'block', margin: '0 auto' }}
               >
                 검색 반경 넓히기 (+1km)
               </button>

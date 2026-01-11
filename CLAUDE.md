@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A React-based web application that finds nearby gas stations in South Korea and calculates cost-efficiency including travel costs. Features include real-time fuel price data from Opinet API, interactive map with route navigation, and responsive design for mobile and desktop.
+A React-based web application that provides two main features:
+1. **Gas Station Finder**: Find nearby gas stations in South Korea with real-time fuel prices from Opinet API and cost-efficiency analysis
+2. **Parking Lot Finder**: Search Seoul parking lots with SQLite database-driven fast search
+
+Features include real-time data, interactive maps with route navigation, and responsive design with unified UI/UX between both services.
 
 ## Development Commands
 
@@ -17,13 +21,18 @@ A React-based web application that finds nearby gas stations in South Korea and 
 - `cd server && node server.js` - Start backend proxy server on http://localhost:3001
 - Backend must be running for API calls to work (falls back to empty data if unavailable)
 
+### Parking Database
+- `node server/init-parking-db.js` - Initialize parking SQLite database (fetch from Seoul API + geocoding)
+- `node server/sync-parking-db.js` - Sync parking data (update existing + add new)
+- `node server/query-db.js` - Query parking database utility
+
 ## Architecture
 
 ### Two-Server Setup
 The application uses a client-server architecture to handle API keys securely:
 
-1. **Frontend (React)**: Single-page application that handles UI, user interactions, and map display
-2. **Backend (Express)**: Proxy server that makes Opinet/Kakao API calls and handles coordinate transformations
+1. **Frontend (React)**: Single-page application with React Router for navigation between gas station and parking pages
+2. **Backend (Express)**: Proxy server that makes Opinet/Kakao API calls, handles coordinate transformations, and serves parking data from SQLite database
 
 ### Key Technical Components
 
@@ -41,6 +50,7 @@ The application uses a client-server architecture to handle API keys securely:
 - **Kakao Mobility Directions API**: Route calculation with turn-by-turn guidance (requires REST API key)
 - **Daum Postcode API**: Address search UI (loaded via CDN in public/index.html)
 - **Kakao Reverse Geocoding API**: Converts coordinates to addresses for stations without address data
+- **Seoul Open Data API**: Parking lot data (stored in SQLite DB for fast access)
 
 **Data Flow - Station Search**
 1. User enters address → Daum Postcode API provides address selection
@@ -59,6 +69,25 @@ The application uses a client-server architecture to handle API keys securely:
 5. Frontend draws blue polyline on map using Kakao Maps Polyline API
 6. Map auto-fits bounds to show entire route
 7. Route panel displays distance, duration, toll, and step-by-step directions
+
+**Data Flow - Parking Search**
+1. User enters address or uses current location
+2. Frontend calls backend `/api/parking` with lat, lng, radius
+3. Backend queries SQLite database with Haversine distance calculation
+4. Returns nearby parking lots sorted by distance
+5. Frontend displays on map with markers and list view
+6. Response time: ~10ms (vs 30s+ if calling Seoul API directly)
+
+### Navigation & Routing (React Router)
+
+**Routes**
+- `/` - Gas Station Finder (App.js)
+- `/parking` - Parking Lot Finder (ParkingApp.js)
+
+**Layout Component (src/components/Layout.js)**
+- Desktop: Left Navigation Bar (LNB) with hover expand (60px → 200px)
+- Mobile: Bottom tab navigation (fixed, 70px height)
+- Shared navigation between gas station and parking pages
 
 ### Main Application Logic (src/App.js)
 
@@ -105,12 +134,20 @@ The application uses a client-server architecture to handle API keys securely:
 
 ## Features
 
-### 1. Gas Station Search
+### 1. Gas Station Search (/)
 - Search by address or current GPS location
 - Adjustable search radius (0.5km - 5km)
 - **Fuel type selection**: Gasoline (휘발유, B027) or Diesel (경유, D047)
 - Real-time fuel price data from Opinet API
 - Automatic reverse geocoding for stations without addresses
+- "검색 반경 넓히기" button when no results found
+
+### 1.5. Parking Lot Search (/parking)
+- Search Seoul parking lots by address or current location
+- Adjustable search radius (0.5km - 5km)
+- SQLite database with 2,353 parking lots (90% with coordinates)
+- Display parking fee, capacity, operating hours
+- "검색 반경 넓히기" button when no results found
 
 ### 2. Sorting & Analysis
 - **Price**: Lowest fuel price per liter
@@ -137,14 +174,17 @@ The application uses a client-server architecture to handle API keys securely:
 - Mobile: Bottom sheet
 
 ### 5. Responsive Design
-- **Desktop**: Collapsible sidebar (450px) + map view
+- **Desktop**: LNB (60px, expandable to 200px on hover) + sidebar (450px) + map view
+  - Shared LNB navigation between gas station and parking pages
   - Toggle button to collapse/expand sidebar
-  - Sticky sidebar with station list
+  - Sticky sidebar with station/parking list
   - Full-screen map on right side
-- **Mobile**: Bottom sheet + compact controls
-  - Top 3 best stations (price/distance/efficiency) shown on main view
-  - "View All" button opens bottom sheet with complete station list
-  - Compact address search and radius slider
+- **Mobile**: Fixed header (56px) + map + draggable bottom sheet + bottom tab (70px)
+  - Fixed header with page title (스마트 주유소/주차장 찾기)
+  - Bottom tab navigation between gas station and parking
+  - Draggable bottom sheet (snap points: 20vh, 45vh, 85vh max)
+  - Bottom sheet cannot go above header
+  - Compact address search and radius slider inside bottom sheet
 
 ### 6. Best Station Highlighting
 - Automatically identifies best station for each category
@@ -168,12 +208,19 @@ KAKAO_REST_API_KEY=your_kakao_rest_api_key_here
 
 ```
 /src
-  App.js              Main React component (2000+ lines)
+  App.js              Gas station finder main component
+  ParkingApp.js       Parking lot finder main component
   index.css           Global styles and animations
-  index.js            React entry point
+  index.js            React entry point with Router setup
+  /components
+    Layout.js         Shared layout with LNB and mobile bottom tab
 
 /server
-  server.js           Express proxy server
+  server.js           Express proxy server with all API endpoints
+  parking.db          SQLite database for parking lots (3.3MB)
+  init-parking-db.js  Initialize parking DB from Seoul API
+  sync-parking-db.js  Sync/update parking data
+  query-db.js         DB query utility
   .env                API keys (not committed to git)
 
 /public
@@ -200,6 +247,14 @@ Query parameters:
 
 Returns: Route data from Kakao Mobility Directions API (routes, sections, roads, guides)
 
+### GET `/api/parking`
+Query parameters:
+- `lat`: Latitude (WGS84)
+- `lng`: Longitude (WGS84)
+- `radius`: Search radius in km (max 5)
+
+Returns: Array of parking lots with coordinates, fees, capacity, operating hours (from SQLite DB)
+
 ### GET `/health`
 Health check endpoint
 
@@ -217,6 +272,10 @@ Health check endpoint
 - **Route mode**: Car only (static route preview, not real-time GPS tracking)
 - **Coordinate precision**: Rounded to nearest meter for TM_OPINET coordinates
 - **Reverse geocoding**: Batch processing (10 stations at a time) to avoid rate limits
+- **Parking database**: SQLite (better-sqlite3), synced monthly via cron job
+- **Mobile header height**: 56px (unified across all pages)
+- **Mobile bottom tab height**: 70px with safe-area-inset-bottom
+- **Bottom sheet max height**: 85vh (cannot overlap header)
 
 ## Performance Optimizations
 
@@ -225,6 +284,7 @@ Health check endpoint
 3. **Map Marker Optimization**: Only render markers for filtered stations
 4. **Responsive Layout Switching**: Complete map reinitialization when switching mobile/desktop
 5. **useRef for Map State**: Avoid unnecessary re-renders with map instance refs
+6. **SQLite Parking DB**: Pre-computed coordinates stored locally, ~10ms response vs 30s+ API calls
 
 ## Deployment
 
